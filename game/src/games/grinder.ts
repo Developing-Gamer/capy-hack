@@ -3,7 +3,7 @@ import { sound } from '../shared/audio';
 import { inApp } from '../shared/bridge';
 import type { GameFactory } from '../shared/game';
 import { Gore, type Surface, type Wall } from '../shared/gore';
-import type { Placement, PlayerInfo } from '../shared/protocol';
+import type { Limb, Placement, PlayerInfo } from '../shared/protocol';
 import { Flicker } from '../shared/renderer';
 import { Subject } from '../shared/rig';
 import { blotches, canvasTex, speckle, Tex } from '../shared/textures';
@@ -789,7 +789,9 @@ export const createGrinder: GameFactory = (ctx) => {
     const dead = runners.filter((r) => !r.alive).sort((a, b) => b.endAt - a.endAt);
     const order = [...alive, ...dead];
     const placements: Placement[] = order.map((r, i) => ({ id: r.info.id, place: i + 1, status: r.alive ? 'survived' : 'dead', score: Math.round(r.hauled * 10) / 10 }));
-    ctx.finish(placements);
+    const kept = (r: Runner): Limb[] =>
+      (['ra', 'la', 'rl', 'll'] as const).filter((l) => r.subject.limbs[l].attached && r.subject.limbs[l].end.visible);
+    ctx.finish(placements, Object.fromEntries(runners.filter((r) => r.alive).map((r) => [r.info.id, kept(r)])));
     console.log(
       '[round]',
       JSON.stringify({ t: simT.toFixed(1), perf: engine.perf(), taps: inputLog.length, runners: runners.map((r) => [r.info.name, r.brain?.p.kind, r.alive ? 'retained' : r.cause, r.endAt.toFixed(1), r.slips, r.bites, r.minP.toFixed(2)]) }),

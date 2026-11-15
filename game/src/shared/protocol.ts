@@ -19,9 +19,20 @@ export interface StartMessage {
   you: string;
   players: PlayerInfo[];
   pot?: number;
+  /**
+   * Online rounds only: device-clock epoch ms at which round time 0 starts. When set, the server
+   * referees the round and game state flows through `net` messages.
+   */
+  startAt?: number;
 }
 
-export type AppToGame = StartMessage;
+/** Game-specific payload between a game and its server authority, relayed by the app. */
+export interface NetMessage {
+  type: 'net';
+  data: unknown;
+}
+
+export type AppToGame = StartMessage | NetMessage;
 
 export type HapticKind = 'light' | 'heavy' | 'death';
 
@@ -42,6 +53,15 @@ export interface DeathRecord {
 
 export type GameToApp =
   | { type: 'ready' }
+  | NetMessage
   | { type: 'haptic'; kind: HapticKind }
   | ({ type: 'death' } & DeathRecord)
-  | { type: 'result'; game: string; placements: Placement[]; deaths: DeathRecord[]; perf: { fps: number; minFps: number } };
+  | {
+      type: 'result';
+      game: string;
+      placements: Placement[];
+      deaths: DeathRecord[];
+      perf: { fps: number; minFps: number };
+      /** Optional: limbs each subject still has at the end, by player id. */
+      limbs?: Record<string, Limb[]>;
+    };

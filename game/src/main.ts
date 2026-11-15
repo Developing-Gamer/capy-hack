@@ -20,6 +20,8 @@ const hud = new Hud(app);
 engine.start();
 
 let started = false;
+let netView: unknown;
+const netListeners: ((data: unknown) => void)[] = [];
 
 function begin(msg: StartMessage) {
   if (started) return;
@@ -45,12 +47,22 @@ function begin(msg: StartMessage) {
       send({ type: 'death', ...rec });
       if (id === msg.you) send({ type: 'haptic', kind: 'death' });
     },
-    finish(placements) {
+    finish(placements, limbs) {
       if (finished) return;
       finished = true;
-      send({ type: 'result', game: msg.game, placements, deaths, perf: engine.perf() });
+      send({ type: 'result', game: msg.game, placements, deaths, perf: engine.perf(), ...(limbs && { limbs }) });
     },
     elapsed: () => gameTime,
+    net:
+      msg.startAt === undefined
+        ? undefined
+        : {
+            send: (data) => send({ type: 'net', data }),
+            on(fn) {
+              netListeners.push(fn);
+              if (netView !== undefined) fn(netView);
+            },
+          },
   };
   const game = factory(ctx);
   const speed = Number(new URLSearchParams(location.search).get('speed')) || 1;
@@ -64,6 +76,10 @@ function begin(msg: StartMessage) {
 
 onAppMessage((msg) => {
   if (msg.type === 'start') begin(msg);
+  else if (msg.type === 'net') {
+    netView = msg.data;
+    for (const fn of netListeners) fn(msg.data);
+  }
 });
 send({ type: 'ready' });
 

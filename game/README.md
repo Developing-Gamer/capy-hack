@@ -29,6 +29,30 @@ Types live in `src/shared/protocol.ts`, imported by both sides.
   the page posts `ready`.
 - web → RN: `ready`, `haptic` (`light | heavy | death`), `death` (`{ id, cause, t }`),
   `result` (`{ game, placements: [{ id, place, status, score }], deaths, perf }`).
+- Online rounds (added, backward compatible): `start.startAt` is the device-clock epoch ms of
+  round time 0, and `{ type: 'net', data }` flows both ways. `ctx.net` exists only then:
+  `ctx.net.send(data)` goes to the game's server adapter, `ctx.net.on(fn)` receives its latest
+  view. Games that ignore `net` still work online (see below).
+
+## Online trials
+
+`convex/trials.ts` runs a room through `TRIALS` (dinner → machine → grinder → machine → chamber
+→ payout). Each trial is a `matches` row with a seed, a server `startAt`, the seats (living
+humans, then bots up to the game's table size, with the limbs they still have) and the adapter's
+state. The app's `/trials` screen follows `room.matchId` on every phone and remounts the WebView
+for each trial. When a trial ends, the runner kills and maims players for real (`players.alive`,
+`players.lost`), waits for the assessment card, then starts the next trial, or calls
+`payout.settle` once one subject is left.
+
+Server adapters live in `convex/games.ts` (`GAMES`). A game without one is skipped until it is
+added. Two kinds exist:
+
+- **Refereed** (Dinner Party): the server runs the same pure rules module as the page
+  (`src/games/dinner-rules.ts`), decides every death and sends one view to all phones.
+- **Self-reported** (`selfReported()`): every phone plays its own copy against bots and the app
+  forwards its `result` (plus an optional `limbs: { [id]: Limb[] }` of what each subject kept);
+  the trial ends when every human has reported. The Grinder runs this way (`grinder:
+  selfReported()`).
 
 The page only accepts one `start`; to replay, remount the WebView (the play screen bumps its
 `key`).
@@ -78,6 +102,9 @@ The page only accepts one `start`; to replay, remount the WebView (the play scre
 - `Sound.grind`, `scrape`, `grab`, `klaxon`, and a looping `motor(on)` with `motorLoad(0..1)`
   (`audio.ts`).
 - `BoardRow.label` (`hud.ts`) overrides the right-hand value text of a scoreboard row.
+- `ctx.finish(placements, limbs?)` (`game.ts`): pass the limbs each survivor kept and `result`
+  carries them as `limbs`, so the trial runner maims players for real. The Grinder reports a leg
+  whose foot went into the teeth as lost.
 
 ## Games
 
@@ -87,5 +114,6 @@ The page only accepts one `start`; to replay, remount the WebView (the play scre
   belt speeds up and surges, and it stops when 2 of 4 are left (1 of 2–3). The sim runs on a
   fixed 60 Hz step from the seed plus the human tap log, so it can be replayed or synced.
 
-`src/games/dinner.ts` is the reference: room building, a scripted antagonist, bot brains with
-personalities, an execution queue with slow-mo kills, and the round result.
+`src/games/dinner.ts` is the reference: room building, a scripted antagonist, bots, an execution
+queue with slow-mo kills, and the round result. Its rules live in `src/games/dinner-rules.ts`, which
+has no three.js and is imported by the Convex server too.

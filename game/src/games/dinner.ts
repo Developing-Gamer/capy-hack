@@ -2,30 +2,51 @@ import * as THREE from 'three';
 import { sound } from '../shared/audio';
 import type { GameFactory } from '../shared/game';
 import { Gore, type Surface, type Wall } from '../shared/gore';
-import { inApp } from '../shared/bridge';
 import { TouchPad } from '../shared/input';
-import type { Placement, PlayerInfo } from '../shared/protocol';
+import type { PlayerInfo } from '../shared/protocol';
 import { Flicker } from '../shared/renderer';
 import { Subject } from '../shared/rig';
 import { canvasTex, Tex } from '../shared/textures';
 import { clamp, damp, lerp, rand, smooth } from '../shared/util';
+import {
+  type Act,
+  advance,
+  type BotPlan,
+  botFrame,
+  botPlan,
+  CAUSE,
+  CHEW,
+  DROP,
+  type DinnerView,
+  type Fork,
+  hostAt,
+  liftOf,
+  LOWER,
+  MAX_LOAD,
+  newReferee,
+  type Outcome,
+  PEAS,
+  type Placement,
+  placements,
+  RAISE,
+  recordAct,
+  ROUND,
+  type Seat,
+  type Segment,
+  STAB,
+  tableFor,
+} from './dinner-rules';
 
 /*
  * DINNER PARTY. Eat your peas while the host reads. If he sees you moving (stabbing, lifting,
  * chewing), he shoots your head off with the Desert Eagle by his plate. Finish your plate to be
  * excused; the last diner still eating is shot, and anyone still eating at the bell is shot.
+ *
+ * The rules (host schedule, bot plans, who dies when) live in dinner-rules.ts and are a pure
+ * function of the seed plus the humans' fork moves. Solo rounds referee locally; online rounds
+ * send fork moves to the Convex server, which referees for every phone.
  */
 
-const PEAS = 20;
-const MAX_LOAD = 4;
-const ROUND = 75;
-const STAB = 0.25;
-const RAISE = 0.42;
-const CHEW = 0.36;
-const LOWER = 0.3;
-const DROP = 0.14;
-/** Seconds of being observed before movement counts (human reaction). */
-const GRACE = 0.3;
 const TABLE_Y = 0.76;
 const TABLE = { x: 0.42, z0: -4.25, z1: 0.42 };
 const ROOM = { x: 2, z0: -5.4, z1: 1.6, h: 3.2 };
@@ -38,42 +59,7 @@ const SEATS = [
   { x: 0.58, z: -2.9 },
 ];
 
-type Fork = 'idle' | 'stab' | 'raise' | 'chew' | 'lower' | 'drop';
-type Phase = 'intro' | 'read' | 'rustle' | 'fold' | 'lower' | 'look' | 'raise' | 'exec';
-type Kind = 'greedy' | 'cautious' | 'reckless';
 type Shot = 'head' | 'arm' | 'gut';
-
-interface Personality {
-  kind: Kind;
-  react: [number, number];
-  heed: number;
-  startDelay: number;
-  load: [number, number];
-  pick: number;
-  resume: number;
-  twitch: number;
-  /** Only lift the fork within this many seconds of him going back to reading. */
-  raiseWindow: number;
-  /** Chance to keep chewing (instead of dropping the fork) when the paper comes down mid-bite. */
-  finishBite: number;
-}
-
-const PERSONALITIES: Record<Kind, Personality> = {
-  greedy: { kind: 'greedy', react: [0.25, 0.45], heed: 0.8, startDelay: 0.1, load: [3, 4], pick: 0.62, resume: 0.1, twitch: 0.02, raiseWindow: 99, finishBite: 0.3 },
-  cautious: { kind: 'cautious', react: [0.12, 0.26], heed: 0.97, startDelay: 0.55, load: [2, 3], pick: 0.55, resume: 0.5, twitch: 0, raiseWindow: 2.2, finishBite: 0 },
-  reckless: { kind: 'reckless', react: [0.15, 0.35], heed: 0.5, startDelay: 0, load: [2, 4], pick: 0.62, resume: 0.03, twitch: 0.04, raiseWindow: 99, finishBite: 0.3 },
-};
-
-interface Brain {
-  p: Personality;
-  target: number;
-  react: number;
-  heeding: boolean;
-  seenAlert: number;
-  frozen: boolean;
-  /** Decided to finish the current bite despite the danger. */
-  finishing: boolean;
-}
 
 interface Diner {
   info: PlayerInfo;
@@ -81,7 +67,8 @@ interface Diner {
   you: boolean;
   subject: Subject | null;
   plate: Plate;
-  brain: Brain | null;
+  /** Bots follow a precomputed plan; humans have none. */
+  plan: BotPlan | null;
   fork: Fork;
   forkT: number;
   lift: number;
@@ -93,6 +80,15 @@ interface Diner {
   endAt: number;
   cause: string;
   forkPeas: THREE.Mesh[];
+}
+
+/** Who decides deaths: the local referee (solo) or the server (online). */
+interface Authority {
+  act(a: Act): void;
+  poll(t: number): Outcome[];
+  latest(id: string): Act | undefined;
+  over(): boolean;
+  placements(): Placement[];
 }
 
 const lam = (color: number, extra: THREE.MeshLambertMaterialParameters = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra });
@@ -498,21 +494,23 @@ export const createDinner: GameFactory = (ctx) => {
   const cam = engine.camera;
   cam.fov = 70;
 
-  const numbers = new Set<number>();
-  const numberFor = () => {
+  const players = start.players.slice(0, SEATS.length + 1);
+  const seats: Seat[] = players.map((p) => ({ id: p.id, bot: p.isBot, arm: p.limbs.includes('ra') }));
+  const table = tableFor(start.seed, seats);
+  const segs = table.segs;
+  const online = !!ctx.net && start.startAt !== undefined;
+  const auto = new URLSearchParams(location.search).has('auto');
+  const autoPlan = auto ? botPlan(start.seed, 7, 'cautious', segs, table.windows) : null;
+
+  const numbers = new Map<string, number>();
+  for (const p of players) {
     let n = rng.int(1, 99);
-    while (numbers.has(n)) n = (n % 99) + 1;
-    numbers.add(n);
-    return n;
-  };
-  const kinds: Kind[] = ['greedy', 'cautious', 'reckless'];
-  for (let i = kinds.length - 1; i > 0; i--) {
-    const j = rng.int(0, i);
-    [kinds[i], kinds[j]] = [kinds[j], kinds[i]];
+    while ([...numbers.values()].includes(n)) n = (n % 99) + 1;
+    numbers.set(p.id, n);
   }
 
-  const me = start.players.find((p) => p.id === start.you) ?? start.players[0];
-  const others = start.players.filter((p) => p !== me).slice(0, SEATS.length);
+  const me = players.find((p) => p.id === start.you) ?? players[0];
+  const others = players.filter((p) => p !== me);
   const playerFork = forkMesh(1.6);
   scene.add(playerFork.g);
   const sleeve = box(1, 1, 1, lam(0xffffff, { map: Tex.jumpsuit('#77705f', 0) }), scene, 0, 0, 0, false);
@@ -520,7 +518,7 @@ export const createDinner: GameFactory = (ctx) => {
 
   const makeDiner = (info: PlayerInfo, seat: number): Diner => {
     const you = seat < 0;
-    const number = numberFor();
+    const number = numbers.get(info.id)!;
     let subject: Subject | null = null;
     let forkPeas: THREE.Mesh[] = playerFork.peas;
     let plate: Plate;
@@ -539,28 +537,52 @@ export const createDinner: GameFactory = (ctx) => {
       subject.hand('r').add(f.g);
       forkPeas = f.peas;
     }
-    const brain: Brain | null = info.isBot && !you ? { p: PERSONALITIES[kinds[seat % 3]], target: 3, react: 0.3, heeding: true, seenAlert: -1, frozen: false, finishing: false } : null;
-    if (brain) brain.target = rng.int(...brain.p.load);
-    return { info, number, you, subject, plate, brain, fork: 'idle', forkT: 0, lift: 0, dropFrom: 0, loaded: 0, eaten: 0, alive: true, done: false, endAt: 0, cause: '', forkPeas };
+    const plan = info.isBot ? (table.plans.get(info.id) ?? null) : null;
+    return { info, number, you, subject, plate, plan, fork: 'idle', forkT: 0, lift: 0, dropFrom: 0, loaded: 0, eaten: 0, alive: true, done: false, endAt: 0, cause: '', forkPeas };
   };
   const you = makeDiner(me, -1);
-  const auto = new URLSearchParams(location.search).has('auto');
-  if (auto) you.brain = { p: PERSONALITIES.cautious, target: 3, react: 0.2, heeding: true, seenAlert: -1, frozen: false, finishing: false };
   const diners = [you, ...others.map((p, i) => makeDiner(p, i))];
   const tag = (d: Diner) => `#${String(d.number).padStart(2, '0')} ${d.info.name.toUpperCase()}`;
 
+  const authority: Authority = online ? netAuthority() : localAuthority();
+
+  function localAuthority(): Authority {
+    const ref = newReferee(start.seed, seats);
+    return {
+      act: (a) => recordAct(ref, me.id, a),
+      poll: (t) => advance(ref, t),
+      latest: () => undefined,
+      over: () => ref.over,
+      placements: () => placements(ref),
+    };
+  }
+
+  function netAuthority(): Authority {
+    let view: DinnerView = { outcomes: [], acts: {}, over: false, placements: [] };
+    let seen = 0;
+    ctx.net!.on((data) => {
+      view = data as DinnerView;
+    });
+    return {
+      act: (a) => ctx.net!.send({ kind: 'act', ...a }),
+      poll: () => {
+        const fresh = view.outcomes.slice(seen);
+        seen = view.outcomes.length;
+        return fresh;
+      },
+      latest: (id) => view.acts[id],
+      over: () => view.over && seen >= view.outcomes.length,
+      placements: () => view.placements,
+    };
+  }
+
   let elapsed = 0;
-  let phase: Phase = 'intro';
-  let pt = 0;
-  let dur = 99;
-  let afterTell: 'lower' | 'read' = 'read';
-  let snapLower = false;
-  let doubleTake = false;
-  let alertAt = -1;
-  let clearAt = 0;
-  let readSince = 0;
-  let downSince = -1;
-  let obsT = 0;
+  let begun = false;
+  let introDone = false;
+  let hs = hostAt(segs, 0);
+  let lastSeg = -1;
+  let settling = false;
+  let execing = false;
   let execQueue: { d: Diner; cause: string; shots: Shot[] }[] = [];
   let execT = 0;
   let execCooldown = 0;
@@ -574,201 +596,164 @@ export const createDinner: GameFactory = (ctx) => {
   let boardT = 0;
   let firstBite = false;
 
-  const progress = () => clamp(elapsed / ROUND, 0, 1);
-  const moving = (d: Diner) => d.fork !== 'idle';
-  const active = () => diners.filter((d) => d.alive && !d.done);
-
-  function enter(p: Phase) {
-    phase = p;
-    pt = 0;
-    if (p === 'read') {
-      dur = rng.range(2, 4.5) * (1 - 0.35 * progress());
-      readSince = elapsed;
-      clearAt = elapsed;
-      host.shake = 0;
-      host.fold = 0;
-    } else if (p === 'rustle') {
-      dur = 0.65;
-      afterTell = rng.chance(0.7) ? 'lower' : 'read';
-      alertAt = elapsed;
-      sound.rustle(0.6);
-    } else if (p === 'fold') {
-      dur = 0.75;
-      afterTell = rng.chance(0.6) ? 'lower' : 'read';
-      alertAt = elapsed;
-      sound.rustle(0.3, 0.4);
-    } else if (p === 'lower') {
-      dur = snapLower ? 0.2 : 0.26;
-      if (snapLower) {
-        alertAt = elapsed;
-        sound.snap();
-      }
+  function onSegment(s: Segment) {
+    if (s.phase === 'read') sound.intensity = 0.4;
+    else if (s.phase === 'rustle') sound.rustle(0.6);
+    else if (s.phase === 'fold') sound.rustle(0.3, 0.4);
+    else if (s.phase === 'lower') {
+      if (s.snap) sound.snap();
       sound.sting();
       sound.intensity = 0.9;
-    } else if (p === 'look') {
-      dur = rng.chance(0.12) ? rng.range(3, 4) : rng.range(1, 2);
-    } else if (p === 'raise') {
-      dur = 0.4;
-      doubleTake = rng.chance(0.18);
-      sound.rustle(0.25, 0.4);
-    }
+    } else if (s.phase === 'raise') sound.rustle(0.25, 0.4);
   }
 
   function hostTick(dt: number) {
-    pt += dt;
-    if (phase === 'exec' || phase === 'intro') return;
-    if (phase === 'read') {
-      host.down = damp(host.down, 0, 18, dt);
-      if (pt >= dur) {
-        const r = rng.next();
-        snapLower = false;
-        if (r < 0.45 || elapsed < 12) enter(r < 0.6 ? 'rustle' : 'fold');
-        else if (r < 0.78) enter('fold');
-        else {
-          snapLower = true;
-          enter('lower');
-        }
-      }
-    } else if (phase === 'rustle' || phase === 'fold') {
-      if (phase === 'rustle') host.shake = 1 - pt / dur;
-      else host.fold = Math.sin((pt / dur) * Math.PI) * 0.45;
-      if (pt >= dur) {
-        snapLower = false;
-        if (afterTell === 'lower') enter('lower');
-        else enter('read');
-      }
-    } else if (phase === 'lower') {
-      host.down = Math.max(host.down, pt / dur);
-      if (pt >= dur) enter('look');
-    } else if (phase === 'look') {
-      host.down = 1;
-      host.scan += dt * 2.4;
-      if (pt >= dur) enter('raise');
-    } else if (phase === 'raise') {
-      host.down = 1 - pt / dur;
-      if (doubleTake && pt > dur * 0.55) {
-        snapLower = true;
-        enter('lower');
-      } else if (pt >= dur) {
-        sound.intensity = 0.4;
-        enter('read');
-      }
+    hs = hostAt(segs, elapsed, hs.index);
+    if (hs.index !== lastSeg) {
+      lastSeg = hs.index;
+      if (!execing) onSegment(hs.seg);
     }
+    const s = hs.seg;
+    host.shake = s.phase === 'rustle' ? 1 - hs.pt / s.dur : 0;
+    host.fold = s.phase === 'fold' ? Math.sin((hs.pt / s.dur) * Math.PI) * 0.45 : 0;
+    if (s.phase === 'look') host.scan += dt * 2.4;
+    if (execing || settling) {
+      host.down = damp(host.down, execing ? 1 : hs.down, 14, dt);
+      settling = execing || Math.abs(host.down - hs.down) > 0.02;
+    } else host.down = hs.down;
   }
 
   function setFork(d: Diner, f: Fork) {
     if (f === 'drop') d.dropFrom = d.lift;
     d.fork = f;
     d.forkT = 0;
+    if (d.you) authority.act({ t: elapsed, fork: f, loaded: d.loaded, eaten: d.eaten });
   }
 
-  function forkTick(d: Diner, dt: number) {
-    if (!d.alive || execQueue.some((e) => e.d === d)) return;
+  /** Puts a diner in a fork state taken from a plan or the server; returns whether it changed. */
+  function applyFrame(d: Diner, fork: Fork, forkT: number, loaded: number, eaten: number, from: number) {
+    const changed = fork !== d.fork || loaded !== d.loaded || eaten !== d.eaten;
+    d.fork = fork;
+    d.forkT = forkT;
+    d.loaded = loaded;
+    d.eaten = eaten;
+    d.lift = liftOf(fork, forkT, from);
+    const remaining = Math.max(0, PEAS - eaten - loaded);
+    if (remaining !== d.plate.remaining) {
+      d.plate.remaining = remaining;
+      d.plate.sync();
+    }
+    d.forkPeas.forEach((p, i) => (p.visible = i < loaded));
+    return changed;
+  }
+
+  const busy = (d: Diner) => !d.alive || d.done || execQueue.some((e) => e.d === d);
+
+  function youTick(dt: number) {
+    const d = you;
+    if (busy(d)) return;
+    if (autoPlan) {
+      const f = botFrame(autoPlan, elapsed);
+      if (applyFrame(d, f.fork, f.forkT, f.loaded, f.eaten, f.from)) authority.act({ t: elapsed, fork: f.fork, loaded: f.loaded, eaten: f.eaten });
+      return;
+    }
     d.forkT += dt;
     if (d.fork === 'stab') {
-      const pick = d.brain ? d.brain.p.pick : 0.55;
       while (d.forkT >= STAB) {
         d.forkT -= STAB;
-        if (d.loaded < MAX_LOAD && d.plate.remaining > 0 && (d.brain ? rng.chance(pick) : Math.random() < pick)) {
+        if (d.loaded < MAX_LOAD && d.plate.remaining > 0 && Math.random() < 0.55) {
           d.loaded++;
           d.plate.remaining--;
           d.plate.sync();
-          if (d.you) {
-            if (d.loaded === MAX_LOAD || d.plate.remaining === 0) sound.clink(true);
-            else sound.clink();
-          }
-        } else if (d.you) sound.clink();
+          if (d.loaded === MAX_LOAD || d.plate.remaining === 0) sound.clink(true);
+          else sound.clink();
+        } else sound.clink();
       }
       d.lift = 0;
     } else if (d.fork === 'raise') {
-      d.lift = clamp(d.forkT / RAISE, 0, 1);
+      d.lift = liftOf('raise', d.forkT);
       if (d.forkT >= RAISE) {
         d.eaten += d.loaded;
         d.loaded = 0;
         setFork(d, 'chew');
-        if (d.you) {
-          sound.chew();
-          ctx.haptic('light');
-        }
+        sound.chew();
+        ctx.haptic('light');
       }
     } else if (d.fork === 'chew') {
       d.lift = 1;
       if (d.forkT >= CHEW) setFork(d, 'lower');
     } else if (d.fork === 'lower') {
-      d.lift = 1 - clamp(d.forkT / LOWER, 0, 1);
-      if (d.forkT >= LOWER) {
-        setFork(d, 'idle');
-        if (d.eaten >= PEAS) excuse(d);
-      }
+      d.lift = liftOf('lower', d.forkT);
+      if (d.forkT >= LOWER) setFork(d, 'idle');
     } else if (d.fork === 'drop') {
-      d.lift = d.dropFrom * (1 - clamp(d.forkT / DROP, 0, 1));
+      d.lift = liftOf('drop', d.forkT, d.dropFrom);
       if (d.forkT >= DROP) {
         d.plate.remaining += d.loaded;
         d.loaded = 0;
         d.plate.sync();
         setFork(d, 'idle');
-        if (d.you) sound.clink();
-        if (d.eaten >= PEAS) excuse(d);
+        sound.clink();
       }
     } else d.lift = 0;
+    if (d.eaten >= PEAS && d.fork === 'idle') {
+      pad.enabled = false;
+      hud.setHint('');
+    }
     d.forkPeas.forEach((p, i) => (p.visible = i < d.loaded));
   }
 
+  function othersTick() {
+    for (const d of diners) {
+      if (d.you || busy(d)) continue;
+      if (d.plan) {
+        const f = botFrame(d.plan, elapsed);
+        applyFrame(d, f.fork, f.forkT, f.loaded, f.eaten, f.from);
+      } else {
+        const a = authority.latest(d.info.id);
+        if (a) applyFrame(d, a.fork, Math.max(0, elapsed - a.t), a.loaded, a.eaten, 0.8);
+      }
+    }
+  }
+
+  function applyOutcomes() {
+    for (const o of authority.poll(elapsed)) {
+      const d = diners.find((x) => x.info.id === o.id);
+      if (!d) continue;
+      if (o.status === 'excused') {
+        excuse(d);
+        continue;
+      }
+      if (o.cause === CAUSE.last && !lastPlate) {
+        lastPlate = true;
+        hud.feed('<b>LAST PLATE.</b> The host does not wait.');
+      }
+      if (o.cause === CAUSE.time && !timeUp) {
+        timeUp = true;
+        hud.feed('<b>DINNER IS OVER.</b> Unfinished plates are not tolerated.');
+      }
+      d.eaten = o.eaten;
+      schedule(d, o.cause);
+    }
+  }
+
   function excuse(d: Diner) {
+    if (d.done) return;
     d.done = true;
     d.endAt = elapsed;
     if (d.subject) d.subject.relaxed = true;
     hud.feed(`<b>${tag(d)}</b> cleaned the plate. Excused.`);
     if (d.you) {
-      hud.setHint('Excused. Stay still and watch.');
+      hud.setHint('');
       pad.enabled = false;
     }
   }
 
-  function brainTick(d: Diner, dt: number) {
-    const b = d.brain;
-    if (!b || !d.alive || d.done) return;
-    const p = b.p;
-    if (alertAt > clearAt && b.seenAlert !== alertAt) {
-      b.seenAlert = alertAt;
-      b.react = rng.range(...p.react);
-      b.heeding = rng.chance(p.heed);
-    }
-    const alertFor = alertAt > clearAt ? elapsed - alertAt : -1;
-    const sawTell = alertFor >= b.react && b.heeding;
-    const sawLook = downSince >= 0 && elapsed - downSince >= b.react * 0.8;
-    if (sawTell || sawLook || phase === 'exec') b.frozen = true;
-    const readFor = elapsed - readSince;
-    if (b.frozen && phase === 'read' && readFor >= p.resume) b.frozen = false;
-    if (b.frozen || phase === 'intro') {
-      if (d.fork === 'stab') {
-        const twitch = (phase === 'look' || phase === 'lower') && rng.chance(p.twitch * dt * 10);
-        if (!twitch) setFork(d, 'idle');
-      } else if ((d.fork === 'raise' || d.fork === 'chew' || d.fork === 'lower') && !b.finishing) {
-        if (rng.chance(p.finishBite)) b.finishing = true;
-        else setFork(d, 'drop');
-      } else if (d.fork === 'idle' && phase === 'look' && rng.chance(p.twitch * dt)) setFork(d, d.loaded > 0 && p.kind === 'reckless' ? 'raise' : 'stab');
-      return;
-    }
-    if (phase === 'read' && readFor < p.startDelay) return;
-    if (d.fork === 'idle') {
-      if (d.loaded < b.target && d.plate.remaining > 0 && d.eaten + d.loaded < PEAS) setFork(d, 'stab');
-      else if (d.loaded > 0 && (phase !== 'read' || readFor < p.raiseWindow || p.kind !== 'cautious')) setFork(d, 'raise');
-    } else if (d.fork === 'stab' && (d.loaded >= b.target || d.plate.remaining === 0 || d.eaten + d.loaded >= PEAS)) {
-      if (p.kind === 'cautious' && readFor > p.raiseWindow) setFork(d, 'idle');
-      else setFork(d, 'raise');
-    }
-    if (d.fork === 'lower' && d.forkT === 0) b.target = rng.int(...p.load);
-    if (d.fork === 'idle') b.finishing = false;
-  }
-
   function schedule(d: Diner, cause: string) {
     if (execQueue.some((e) => e.d === d)) return;
-    const shots: Shot[] = d.you || !d.subject ? ['head'] : cause.startsWith('Observed stab') && d.subject.limbs.ra.attached ? ['arm', 'head'] : cause.startsWith('Observed') ? ['head'] : ['gut', 'head'];
+    const shots: Shot[] = d.you || !d.subject ? ['head'] : cause === CAUSE.stab && d.subject.limbs.ra.attached ? ['arm', 'head'] : cause === CAUSE.eat || cause === CAUSE.stab ? ['head'] : ['gut', 'head'];
     execQueue.push({ d, cause, shots });
-    if (phase !== 'exec') {
-      phase = 'exec';
-      pt = 0;
+    if (!execing) {
+      execing = true;
       execT = 0;
       execCooldown = 0;
       sound.intensity = 1;
@@ -857,7 +842,6 @@ export const createDinner: GameFactory = (ctx) => {
   }
 
   function execTick(dt: number) {
-    host.down = damp(host.down, 1, 14, dt);
     const cur = execQueue[0];
     if (cur) {
       host.aimAt.copy(aimPoint(cur.d, cur.shots[0]));
@@ -876,76 +860,49 @@ export const createDinner: GameFactory = (ctx) => {
     }
     execT += dt;
     if (execT > 0.7) host.aim = damp(host.aim, 0, 8, dt);
-    if (execT > 1.3 && !finished) {
+    if (execT > 1.3) {
       host.aim = 0;
+      execing = false;
+      settling = true;
       sound.intensity = 0.4;
-      enter('raise');
     }
-  }
-
-  function checkCaught(dt: number) {
-    const observing = host.down >= 0.55;
-    obsT = observing ? obsT + dt : 0;
-    if (!observing || obsT < GRACE || lastPlate || timeUp) return;
-    for (const d of active()) if (moving(d)) schedule(d, d.fork === 'stab' ? 'Observed stabbing peas' : 'Observed eating');
   }
 
   function endTick() {
     if (finished) return;
-    const left = active();
-    if (!timeUp && elapsed >= ROUND && left.length) {
-      timeUp = true;
-      hud.feed('<b>DINNER IS OVER.</b> Unfinished plates are not tolerated.');
-      for (const d of left.sort((a, b) => a.eaten - b.eaten)) schedule(d, 'Still eating when dinner ended');
-      return;
-    }
-    if (!lastPlate && !timeUp && left.length === 1 && diners.some((d) => d.done) && phase !== 'exec') {
-      lastPlate = true;
-      hud.feed('<b>LAST PLATE.</b> The host does not wait.');
-      schedule(left[0], 'Last plate at the table');
-      return;
-    }
-    if (left.length === 0 && phase !== 'exec' && endAt < 0) endAt = elapsed + 2.2;
+    if (endAt < 0 && !execing && authority.over()) endAt = elapsed + 2.2;
     if (endAt >= 0 && elapsed >= endAt) finish();
   }
 
   function finish() {
     finished = true;
-    const done = diners.filter((d) => d.done).sort((a, b) => a.endAt - b.endAt);
-    const dead = diners.filter((d) => !d.alive).sort((a, b) => b.endAt - a.endAt);
-    const order = [...done, ...dead];
-    const placements: Placement[] = order.map((d, i) => ({ id: d.info.id, place: i + 1, status: d.alive ? 'survived' : 'dead', score: d.eaten }));
-    ctx.finish(placements);
-    console.log('[round]', JSON.stringify({ elapsed: elapsed.toFixed(1), diners: diners.map((d) => [d.info.name, d.brain?.p.kind, d.alive ? 'excused' : d.cause, d.eaten, d.endAt.toFixed(1)]) }));
-    const perf = engine.perf();
-    const pool = !you.alive ? (you.cause.startsWith('Last') ? REMARKS.last : you.cause.startsWith('Still') ? REMARKS.time : REMARKS.caught) : REMARKS.excused;
+    const result = authority.placements();
+    ctx.finish(result);
+    const order = result.map((r) => diners.find((d) => d.info.id === r.id)).filter((d): d is Diner => !!d);
+    console.log('[round]', JSON.stringify({ elapsed: elapsed.toFixed(1), online, perf: engine.perf(), diners: diners.map((d) => [d.info.name, d.plan?.kind ?? 'human', d.alive ? 'excused' : d.cause, d.eaten, d.endAt.toFixed(1)]) }));
+    const pool = !you.alive ? (you.cause === CAUSE.last ? REMARKS.last : you.cause === CAUSE.time ? REMARKS.time : REMARKS.caught) : REMARKS.excused;
     hud.assessment({
-      kicker: 'ASSESSMENT · SIMULATION 01 · DINNER PARTY',
+      kicker: 'ASSESSMENT',
       subject: `SUBJECT ${tag(you)}`,
       verdict: you.alive ? 'RETAINED' : 'TERMINATED',
-      lines: [
-        ['PEAS CONSUMED', `${you.eaten} / ${PEAS}`],
-        ['TIME AT TABLE', `${(you.endAt || elapsed).toFixed(1)} s`],
-        ['CAUSE', you.alive ? 'None. Plate cleared.' : you.cause],
-        ['LIMBS', `${me.limbs.length} / 4 retained`],
-      ],
-      remark: pool[rng.int(0, pool.length - 1)],
-      table: order.map((d) => `${tag(d)} — ${d.alive ? 'EXCUSED' : 'TERMINATED'}${d.you ? ' (you)' : ''}`),
-      fine: `SEED ${start.seed} · ${perf.fps} FPS AVG · ${perf.minFps} MIN`,
+      lines: [['PEAS', `${you.eaten} / ${PEAS}`]],
+      remark: pool[Math.floor(Math.random() * pool.length)],
+      table: order.map((d) => `${tag(d)} — ${d.alive ? 'EXCUSED' : 'TERMINATED'}`),
+      fine: '',
     });
   }
 
   const pad = new TouchPad(ctx.surface, {
     down: () => {
-      if (!you.alive || you.done || phase === 'intro') return;
+      if (busy(you) || !begun) return;
       if (you.fork === 'raise' || you.fork === 'chew' || you.fork === 'lower') setFork(you, 'drop');
       else if (you.fork === 'idle' && you.loaded < MAX_LOAD && you.plate.remaining > 0) setFork(you, 'stab');
     },
     up: () => {
-      if (you.fork === 'stab') setFork(you, 'idle');
+      if (you.fork === 'stab' && !busy(you)) setFork(you, 'idle');
     },
     swipeUp: () => {
-      if (!you.alive || you.done || phase === 'intro') return;
+      if (busy(you) || !begun) return;
       if ((you.fork === 'idle' || you.fork === 'stab') && you.loaded > 0) {
         setFork(you, 'raise');
         if (!firstBite) {
@@ -956,14 +913,6 @@ export const createDinner: GameFactory = (ctx) => {
     },
   });
   if (auto) pad.enabled = false;
-  if (!inApp())
-    window.addEventListener('keydown', (e) => {
-      const keys = ['Digit1', 'Digit2', 'Digit3', 'KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB', 'KeyN'];
-      const causes = ['Observed eating', 'Observed stabbing peas', 'Last plate at the table'];
-      const i = keys.indexOf(e.code);
-      const target = e.code === 'KeyY' ? you : i >= 0 ? diners[(i % 3) + 1] : null;
-      if (target?.alive && phase !== 'intro') schedule(target, causes[Math.floor(Math.max(0, i) / 3)]);
-    });
 
   const restTip = new THREE.Vector3(0.035, TABLE_Y + 0.05, 0.08);
   const mouthTip = new THREE.Vector3(0.02, 1.06, 0.4);
@@ -1010,7 +959,7 @@ export const createDinner: GameFactory = (ctx) => {
     look.lerp(glance, smooth(Math.min(1, glanceK * 1.5)) * 0.35);
     look.y += Math.sin(t * 0.5) * 0.02;
     cam.lookAt(look);
-    const fov = observing || phase === 'exec' ? 62 : 70;
+    const fov = observing || execing ? 62 : 70;
     if (Math.abs(cam.fov - fov) > 0.05) {
       cam.fov = damp(cam.fov, fov, 5, dt);
       cam.updateProjectionMatrix();
@@ -1020,21 +969,25 @@ export const createDinner: GameFactory = (ctx) => {
   function hudTick(dt: number) {
     if (!finished) hud.setTimer(ROUND - elapsed);
     const watching = host.down > 0.5;
-    if (!you.alive) hud.setStatus('', 'hidden');
-    else if (phase === 'intro') hud.setStatus('', 'hidden');
-    else if (phase === 'exec') hud.setStatus(lastPlate ? 'LAST PLATE' : timeUp ? 'DINNER IS OVER' : "DON'T. MOVE.", 'danger');
+    const phase = hs.seg.phase;
+    if (!begun) {
+      const wait = online ? Math.ceil((start.startAt! - Date.now()) / 1000) : 0;
+      if (wait > 0) hud.setStatus(`DINNER IN ${wait}`, 'warn');
+      else hud.setStatus('', 'hidden');
+    } else if (!you.alive) hud.setStatus('', 'hidden');
+    else if (execing) hud.setStatus(lastPlate ? 'LAST PLATE' : timeUp ? 'DINNER IS OVER' : "DON'T. MOVE.", 'danger');
     else if (watching) hud.setStatus("HE'S WATCHING", 'danger');
     else if (phase === 'rustle' || phase === 'fold' || (phase === 'lower' && !watching)) hud.setStatus('…', 'warn');
     else if (you.done) hud.setStatus('EXCUSED', 'calm');
     else hud.setStatus("HE'S READING", 'calm');
-    engine.tint = damp(engine.tint, watching || phase === 'exec' ? 0.3 : 0, 6, dt);
+    engine.tint = damp(engine.tint, watching || execing ? 0.3 : 0, 6, dt);
     room.danger.intensity = engine.tint * 12;
     boardT += dt;
     if (boardT > 0.12) {
       boardT = 0;
       hud.setBoard(
         diners.map((d) => ({
-          name: d.you ? tag(d) : `${tag(d)}<small>${d.brain?.p.kind ?? ''}</small>`,
+          name: tag(d),
           value: d.eaten,
           max: PEAS,
           me: d.you,
@@ -1049,33 +1002,28 @@ export const createDinner: GameFactory = (ctx) => {
   hud.setPot(start.pot);
   hud.setLimbs(me.limbs);
   hud.setTimer(ROUND);
-  hud.setHint('<b>HOLD</b> to stab peas · <b>FLICK UP</b> to eat · <b>TAP</b> mid-bite to drop it');
+  hud.setHint('<b>HOLD</b> STAB · <b>FLICK</b> EAT');
   void hud
-    .intro('SIMULATION 01', 'DINNER PARTY', [
-      'Eat your peas while the host reads.',
-      '<b>Hold</b> to stab peas onto the fork. <b>Flick up</b> to eat.',
-      'If he sees you stabbing, lifting or chewing, he shoots.',
-      'Clean your plate to be excused. The last plate is shot.',
-    ])
+    .intro('SIMULATION 01', 'DINNER PARTY', ['EAT YOUR PEAS.', '<b>HOLD</b> TO STAB. <b>FLICK</b> TO EAT.', "DON'T GET CAUGHT."])
     .then(() => {
+      introDone = true;
       sound.unlock();
       sound.drone(true);
       sound.beat(true);
-      enter('read');
-      dur = 2.4;
+      if (!online) begun = true;
     });
-  if (auto) document.querySelector<HTMLElement>('.overlay')?.dispatchEvent(new PointerEvent('pointerdown'));
+  const closeIntro = () => document.querySelector<HTMLElement>('.overlay')?.dispatchEvent(new PointerEvent('pointerdown'));
+  if (auto) closeIntro();
 
   function step(dt: number, t: number) {
-    if (phase !== 'intro') elapsed += dt;
-    hostTick(dt);
-    if (phase === 'exec') execTick(dt);
-    if (host.down > 0.3 && downSince < 0) downSince = elapsed;
-    else if (host.down <= 0.3) downSince = -1;
-    for (const d of diners) brainTick(d, dt);
-    for (const d of diners) forkTick(d, dt);
-    if (phase !== 'intro') checkCaught(dt);
-    if (phase !== 'intro') endTick();
+    if (begun) {
+      hostTick(dt);
+      applyOutcomes();
+      youTick(dt);
+      othersTick();
+      if (execing) execTick(dt);
+      endTick();
+    }
     host.update(dt, t);
     for (const d of diners) {
       const s = d.subject;
@@ -1083,7 +1031,7 @@ export const createDinner: GameFactory = (ctx) => {
       s.eat = d.lift;
       s.stab = d.fork === 'stab';
       s.chew = d.fork === 'chew';
-      const alert = host.down > 0.3 || phase === 'exec' || (alertAt > clearAt && phase !== 'read');
+      const alert = begun && (host.down > 0.3 || execing || hs.seg.phase !== 'read');
       s.freeze = alert;
       s.lookAt = alert || d.done ? host.headWorld() : new THREE.Vector3(Math.sign(s.root.position.x) * 0.2, TABLE_Y, s.root.position.z);
       s.update(dt, t);
@@ -1099,8 +1047,21 @@ export const createDinner: GameFactory = (ctx) => {
 
   return {
     update(dt, t) {
+      if (online) {
+        const now = (Date.now() - start.startAt!) / 1000;
+        if (!begun && now >= 0) {
+          begun = true;
+          if (!introDone) closeIntro();
+        }
+        if (begun) elapsed = Math.max(elapsed, now);
+        step(dt, t);
+        return;
+      }
       const ff = youDeadAt >= 0 && elapsed - youDeadAt > 2.5 && !finished ? 3 : 1;
-      for (let i = 0; i < ff; i++) step(dt, t + i * dt);
+      for (let i = 0; i < ff; i++) {
+        if (begun) elapsed += dt;
+        step(dt, t + i * dt);
+      }
     },
   };
 };
