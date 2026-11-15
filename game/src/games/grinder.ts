@@ -558,7 +558,6 @@ export const createGrinder: GameFactory = (ctx) => {
     if (!surgeWarn && !surgeOn && simT >= surge.at) {
       surgeWarn = true;
       sound.klaxon(1.1);
-      hud.feed('<b>SURGE.</b>');
     }
     if (surgeWarn && simT >= surge.at + surge.warn) {
       surgeWarn = false;
