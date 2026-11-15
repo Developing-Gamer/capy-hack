@@ -33,12 +33,12 @@ export default function LobbyScreen() {
   const launched = useRef(false);
   const enterTrial = () => {
     if (!code || !playerId) return;
-    router.push({ pathname: '/play/[game]', params: { game: 'dinner', code, me: playerId } });
+    router.push({ pathname: '/trials', params: { code, me: playerId } });
   };
   useEffect(() => {
     if (!playing || launched.current || !code || !playerId) return;
     launched.current = true;
-    router.push({ pathname: '/play/[game]', params: { game: 'dinner', code, me: playerId } });
+    router.push({ pathname: '/trials', params: { code, me: playerId } });
   }, [playing, code, playerId]);
 
   const run = async (fn: () => Promise<{ code: string; playerId: Id<'players'> }>) => {
@@ -95,9 +95,9 @@ export default function LobbyScreen() {
           ))}
         </View>
         <Pressable style={styles.cta} onPress={enterTrial}>
-          <Text style={styles.ctaText}>ENTER DINNER PARTY</Text>
+          <Text style={styles.ctaText}>ENTER THE TRIALS</Text>
         </Pressable>
-        <Text style={styles.hint}>First trial: Dinner Party.</Text>
+        <Text style={styles.hint}>Every phone follows the trials automatically.</Text>
       </SafeAreaView>
     );
   }

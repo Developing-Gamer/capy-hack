@@ -17,6 +17,14 @@ export interface GameContext {
   finish(placements: Placement[]): void;
   /** Seconds since the game was created (scaled time). */
   elapsed(): number;
+  /**
+   * Online rounds only (`start.startAt` set): `send` goes to this game's server authority through the
+   * app, and `on` receives the authority's latest view (also replayed to a late listener).
+   */
+  net?: {
+    send(data: unknown): void;
+    on(fn: (data: unknown) => void): void;
+  };
 }
 
 export interface Game {

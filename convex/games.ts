@@ -1,0 +1,95 @@
+import { Infer } from "convex/values";
+import { type Act, advance, type Fork, newReferee, recordAct, type Referee, viewOf } from "../game/src/games/dinner-rules";
+import { seat } from "./schema";
+
+export type SeatInfo = Infer<typeof seat>;
+
+export interface SeatResult {
+  id: string;
+  dead: boolean;
+  /** Limbs lost in this trial. */
+  lost: string[];
+}
+
+/**
+ * How the server runs one game. `t` is round time in seconds (server clock). State must be plain
+ * JSON; it is stored on the match and mutated in place by act/tick.
+ */
+export interface ServerGame {
+  /** Seats at the table; bots fill whatever the humans leave empty. */
+  seats: number;
+  /** How often tick runs while the round is live. */
+  tickMs: number;
+  init(seed: number, seats: SeatInfo[]): unknown;
+  act(state: unknown, playerId: string, data: unknown, t: number): void;
+  tick(state: unknown, t: number): void;
+  over(state: unknown): boolean;
+  /** What every phone receives (as a `net` message) on each change. */
+  view(state: unknown): unknown;
+  results(state: unknown): SeatResult[];
+}
+
+/** Server time is the authority, but a phone's fork move is judged when it happened, up to this late. */
+const SLACK = 0.35;
+const FORKS: Fork[] = ["idle", "stab", "raise", "chew", "lower", "drop"];
+
+/** Dinner Party: the server referees with the same rules module the WebView runs. */
+const dinner: ServerGame = {
+  seats: 4,
+  tickMs: 250,
+  init: (seed, seats) => newReferee(seed, seats.map((s) => ({ id: s.id, bot: s.bot, arm: s.limbs.includes("ra") }))),
+  act(state, playerId, data, t) {
+    const d = data as Partial<Act> & { kind?: string };
+    if (d?.kind !== "act" || !FORKS.includes(d.fork as Fork)) return;
+    const at = Math.min(t, Math.max(t - SLACK, Number(d.t) || 0));
+    recordAct(state as Referee, playerId, { t: at, fork: d.fork as Fork, loaded: Number(d.loaded) || 0, eaten: Number(d.eaten) || 0 });
+  },
+  tick: (state, t) => void advance(state as Referee, t - SLACK),
+  over: (state) => (state as Referee).over,
+  view: (state) => viewOf(state as Referee),
+  results: (state) =>
+    (state as Referee).outcomes.map((o) => ({ id: o.id, dead: o.status === "dead", lost: o.lost })),
+};
+
+interface SelfReport {
+  humans: string[];
+  reports: Record<string, SeatResult>;
+  deadline: number;
+}
+
+/**
+ * Any other game: every phone plays its own copy against bots and reports its own subject's fate
+ * through the standard `result` message. The round ends when every human has reported.
+ */
+export function selfReported(seats = 4, deadline = 240): ServerGame {
+  return {
+    seats,
+    tickMs: 1000,
+    init: (_seed, seats): SelfReport => ({ humans: seats.filter((s) => !s.bot).map((s) => s.id), reports: {}, deadline }),
+    act(state, playerId, data) {
+      const s = state as SelfReport;
+      const d = data as { kind?: string; placements?: { id: string; status: string }[]; limbs?: Record<string, string[]> };
+      if (d?.kind !== "result" || !s.humans.includes(playerId) || s.reports[playerId]) return;
+      const mine = d.placements?.find((p) => p.id === playerId);
+      const kept = d.limbs?.[playerId];
+      const lost = kept ? ["ra", "la", "rl", "ll"].filter((l) => !kept.includes(l)) : [];
+      s.reports[playerId] = { id: playerId, dead: mine?.status === "dead", lost };
+    },
+    tick(state, t) {
+      const s = state as SelfReport;
+      if (t < s.deadline) return;
+      for (const id of s.humans) s.reports[id] ??= { id, dead: false, lost: [] };
+    },
+    over: (state) => {
+      const s = state as SelfReport;
+      return s.humans.every((id) => s.reports[id]);
+    },
+    view: (state) => ({ reported: Object.keys((state as SelfReport).reports) }),
+    results: (state) => Object.values((state as SelfReport).reports),
+  };
+}
+
+/** Server adapters by game key (the `game` field of the start message). */
+export const GAMES: Record<string, ServerGame> = {
+  dinner,
+};
