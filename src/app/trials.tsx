@@ -10,14 +10,6 @@ import type { Id } from '../../convex/_generated/dataModel';
 import type { GameToApp, Hat, Limb, StartMessage } from '../../game/src/shared/protocol';
 import { GameView } from '../game/GameView';
 
-const TRIAL_NAMES: Record<string, string> = {
-  dinner: 'DINNER PARTY',
-  machine: 'THE MACHINE',
-  grinder: 'THE GRINDER',
-  chamber: 'LAST CHAMBER',
-  payout: 'PAYOUT',
-};
-
 /** Offset (ms) to add to Date.now() to get the server clock, from the fastest of a few round trips. */
 function useServerOffset() {
   const clock = useMutation(api.trials.clock);
@@ -86,12 +78,12 @@ export default function TrialsScreen() {
       <GameView key={match.matchId} start={start} net={match.view} onMessage={onMessage} />
       {(match.over || done === match.matchId) && (
         <View style={[styles.banner, { bottom: insets.bottom + 24 }]}>
-          <Text style={styles.bannerText}>NEXT TRIAL LOADING…</Text>
+          <Text style={styles.bannerText}>STAND BY.</Text>
         </View>
       )}
       {!meSeated && (
         <View style={[styles.banner, { top: insets.top + 8 }]}>
-          <Text style={styles.bannerText}>SPECTATING · {TRIAL_NAMES[match.game] ?? match.game.toUpperCase()}</Text>
+          <Text style={styles.bannerText}>SPECTATING</Text>
         </View>
       )}
     </View>

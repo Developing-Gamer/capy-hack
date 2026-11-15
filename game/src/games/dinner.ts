@@ -697,7 +697,7 @@ export const createDinner: GameFactory = (ctx) => {
     } else d.lift = 0;
     if (d.eaten >= PEAS && d.fork === 'idle') {
       pad.enabled = false;
-      hud.setHint('Plate clean. Stay still.');
+      hud.setHint('');
     }
     d.forkPeas.forEach((p, i) => (p.visible = i < d.loaded));
   }
@@ -743,7 +743,7 @@ export const createDinner: GameFactory = (ctx) => {
     if (d.subject) d.subject.relaxed = true;
     hud.feed(`<b>${tag(d)}</b> cleaned the plate. Excused.`);
     if (d.you) {
-      hud.setHint('Excused. Stay still and watch.');
+      hud.setHint('');
       pad.enabled = false;
     }
   }
@@ -879,22 +879,16 @@ export const createDinner: GameFactory = (ctx) => {
     const result = authority.placements();
     ctx.finish(result);
     const order = result.map((r) => diners.find((d) => d.info.id === r.id)).filter((d): d is Diner => !!d);
-    console.log('[round]', JSON.stringify({ elapsed: elapsed.toFixed(1), online, diners: diners.map((d) => [d.info.name, d.plan?.kind ?? 'human', d.alive ? 'excused' : d.cause, d.eaten, d.endAt.toFixed(1)]) }));
-    const perf = engine.perf();
+    console.log('[round]', JSON.stringify({ elapsed: elapsed.toFixed(1), online, perf: engine.perf(), diners: diners.map((d) => [d.info.name, d.plan?.kind ?? 'human', d.alive ? 'excused' : d.cause, d.eaten, d.endAt.toFixed(1)]) }));
     const pool = !you.alive ? (you.cause === CAUSE.last ? REMARKS.last : you.cause === CAUSE.time ? REMARKS.time : REMARKS.caught) : REMARKS.excused;
     hud.assessment({
-      kicker: 'ASSESSMENT · SIMULATION 01 · DINNER PARTY',
+      kicker: 'ASSESSMENT',
       subject: `SUBJECT ${tag(you)}`,
       verdict: you.alive ? 'RETAINED' : 'TERMINATED',
-      lines: [
-        ['PEAS CONSUMED', `${you.eaten} / ${PEAS}`],
-        ['TIME AT TABLE', `${(you.endAt || elapsed).toFixed(1)} s`],
-        ['CAUSE', you.alive ? 'None. Plate cleared.' : you.cause],
-        ['LIMBS', `${me.limbs.length} / 4 retained`],
-      ],
+      lines: [['PEAS', `${you.eaten} / ${PEAS}`]],
       remark: pool[Math.floor(Math.random() * pool.length)],
-      table: order.map((d) => `${tag(d)} — ${d.alive ? 'EXCUSED' : 'TERMINATED'}${d.you ? ' (you)' : ''}`),
-      fine: `SEED ${start.seed}${online ? ' · ONLINE' : ''} · ${perf.fps} FPS AVG · ${perf.minFps} MIN`,
+      table: order.map((d) => `${tag(d)} — ${d.alive ? 'EXCUSED' : 'TERMINATED'}`),
+      fine: '',
     });
   }
 
@@ -993,7 +987,7 @@ export const createDinner: GameFactory = (ctx) => {
       boardT = 0;
       hud.setBoard(
         diners.map((d) => ({
-          name: d.you ? tag(d) : `${tag(d)}<small>${d.plan?.kind ?? ''}</small>`,
+          name: tag(d),
           value: d.eaten,
           max: PEAS,
           me: d.you,
@@ -1008,14 +1002,9 @@ export const createDinner: GameFactory = (ctx) => {
   hud.setPot(start.pot);
   hud.setLimbs(me.limbs);
   hud.setTimer(ROUND);
-  hud.setHint('<b>HOLD</b> to stab peas · <b>FLICK UP</b> to eat · <b>TAP</b> mid-bite to drop it');
+  hud.setHint('<b>HOLD</b> STAB · <b>FLICK</b> EAT');
   void hud
-    .intro('SIMULATION 01', 'DINNER PARTY', [
-      'Eat your peas while the host reads.',
-      '<b>Hold</b> to stab peas onto the fork. <b>Flick up</b> to eat.',
-      'If he sees you stabbing, lifting or chewing, he shoots.',
-      'Clean your plate to be excused. The last plate is shot.',
-    ])
+    .intro('SIMULATION 01', 'DINNER PARTY', ['EAT YOUR PEAS.', '<b>HOLD</b> TO STAB. <b>FLICK</b> TO EAT.', "DON'T GET CAUGHT."])
     .then(() => {
       introDone = true;
       sound.unlock();
