@@ -41,7 +41,7 @@ export default function PayoutScreen() {
 
   const lines: Line[] = won
     ? [
-        { label: `POT (${room.buyIn} × ${paid})`, value: money(payout?.amount ?? room.pot), tone: 'green' },
+        { label: `POT ($${room.buyIn} × ${paid})`, value: money(payout?.amount ?? room.pot), tone: 'green' },
         { label: 'LIMBS', value: `${winner.limbs}/4` },
         { label: 'WHOP', value: STATUS[status], tone: statusTone },
       ]
