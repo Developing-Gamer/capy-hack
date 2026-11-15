@@ -19,7 +19,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../convex/_generated/api';
 
 const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' });
-const LIMBS = ['RIGHT ARM', 'LEFT ARM', 'RIGHT LEG', 'LEFT LEG'];
 const money = (n: number) => `$${n.toFixed(2)}`;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -37,33 +36,22 @@ export default function PayoutScreen() {
   const won = winner._id === me;
   const paid = players.filter((p) => p.paid).length;
   const status = payout?.status ?? 'sending';
-  const transfer = payout?.transferId ? `${payout.transferId.slice(0, 10)}…` : '—';
-  const STATUS = { sending: 'SENDING…', processing: 'PROCESSING', paid: '● SENT', owed: '▲ OWED' } as const;
+  const STATUS = { sending: 'SENDING…', processing: 'SENDING…', paid: '● SENT', owed: '▲ OWED' } as const;
   const statusTone = status === 'paid' ? 'green' : status === 'owed' ? 'red' : 'amber';
 
   const lines: Line[] = won
     ? [
-        { label: 'SUBJECT', value: winner.name.toUpperCase() },
-        { label: 'LIMBS RETAINED', value: `${winner.limbs}/4` },
-        { label: 'SUBJECTS OUTLIVED', value: String(players.length - 1) },
-        { label: `POT ($${room.buyIn} × ${paid})`, value: money(payout?.amount ?? room.pot), tone: 'green' },
-        { label: 'WHOP TRANSFER', value: STATUS[status], tone: statusTone },
-        { label: 'TRANSFER ID', value: transfer, tone: 'dim' },
+        { label: `POT (${room.buyIn} × ${paid})`, value: money(payout?.amount ?? room.pot), tone: 'green' },
+        { label: 'LIMBS', value: `${winner.limbs}/4` },
+        { label: 'WHOP', value: STATUS[status], tone: statusTone },
       ]
     : [
-        ...LIMBS.map((limb, i): Line => ({
-          label: limb,
-          value: i < 4 - (meP?.limbs ?? 4) ? 'SEVERED' : 'RECLAIMED',
-          tone: 'red',
-        })),
+        { label: `LIMBS ×${meP?.limbs ?? 4}`, value: 'RECLAIMED', tone: 'red' },
         { label: 'BUY-IN', value: `-${money(room.buyIn)}`, tone: 'red' },
-        { label: `POT → ${winner.name.toUpperCase()}`, value: money(payout?.amount ?? room.pot), tone: 'dim' },
         { label: 'DIGNITY', value: 'NOT FOUND', tone: 'dim' },
       ];
 
-  const assessment = won
-    ? 'Survival noted. It will not be repeated. Funds released to the subject’s Whop balance.'
-    : `Subject ${meP?.name ?? 'unknown'} did not meet survival criteria. Remains processed. Hat retained for the next batch.`;
+  const assessment = won ? 'Survival noted. Do not expect it twice.' : 'Did not meet survival criteria. Remains processed.';
 
   return (
     <View style={styles.screen}>
@@ -72,20 +60,18 @@ export default function PayoutScreen() {
       {won ? <Bills /> : <Blood />}
       <SafeAreaView style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content} bounces={false}>
-          <Text style={styles.kicker}>BATCH {room.code} · COMPLETE</Text>
+          <Text style={styles.kicker}>BATCH {room.code}</Text>
           {won ? <Winner pot={payout?.amount ?? room.pot} status={status} /> : <Terminated />}
 
           <Animated.View entering={FadeIn.delay(won ? 1600 : 900)} style={styles.receipt}>
             <View style={styles.receiptHead}>
               <Text style={styles.receiptHeadText}>{won ? 'WHOP · PAYOUT' : 'ASSET RECOVERY'}</Text>
-              <Text style={styles.receiptHeadText}>SANDBOX</Text>
             </View>
             {lines.map((line, i) => (
               <ReceiptLine key={line.label} line={line} delay={(won ? 1700 : 1000) + i * 160} haptic={!won} />
             ))}
-            {status === 'owed' && won && payout?.reason && <Text style={styles.reason}>{payout.reason}</Text>}
             <Animated.Text entering={FadeIn.delay((won ? 1700 : 1000) + lines.length * 160 + 200)} style={styles.assessment}>
-              ASSESSMENT: {assessment}
+              {assessment}
             </Animated.Text>
           </Animated.View>
 
@@ -94,7 +80,7 @@ export default function PayoutScreen() {
               <View key={p._id} style={[styles.stand, i === 0 && styles.standWin, p._id === me && styles.standMe]}>
                 <Text style={[styles.standRank, i === 0 && styles.green]}>{i + 1}</Text>
                 <Text style={styles.standName}>{p.name.toUpperCase()}{p._id === me ? ' (YOU)' : ''}</Text>
-                <Text style={[styles.standMeta, i === 0 ? styles.green : styles.red]}>{i === 0 ? `+${money(payout?.amount ?? room.pot)}` : 'TERMINATED'}</Text>
+                <Text style={[styles.standMeta, i === 0 ? styles.green : styles.red]}>{i === 0 ? 'SURVIVED' : 'TERMINATED'}</Text>
               </View>
             ))}
           </View>
@@ -107,7 +93,6 @@ export default function PayoutScreen() {
             }}
           >
             <Text style={styles.ctaText}>NEW BATCH</Text>
-            <Text style={styles.ctaSub}>ANOTHER ${room.buyIn} · ANOTHER CHANCE</Text>
           </Pressable>
         </ScrollView>
       </SafeAreaView>
@@ -147,7 +132,7 @@ function Winner({ pot, status }: { pot: number; status: string }) {
   }, [status]);
 
   const amt = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
-  const into = status === 'paid' ? 'DEPOSITED TO YOUR WHOP BALANCE' : status === 'owed' ? 'HELD BY THE HOUSE · OWED' : 'MOVING INTO YOUR WHOP BALANCE…';
+  const into = status === 'paid' ? 'PAID TO YOUR WHOP' : status === 'owed' ? 'OWED BY THE HOUSE' : 'SENDING TO YOUR WHOP…';
 
   return (
     <View style={styles.hero}>
@@ -183,7 +168,6 @@ function Terminated() {
     <View style={styles.hero}>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flash, flashStyle]} />
       <Animated.Text style={[styles.terminated, title]}>TERMINATED</Animated.Text>
-      <Text style={styles.into}>YOUR ASSETS HAVE BEEN LIQUIDATED</Text>
     </View>
   );
 }
@@ -307,7 +291,6 @@ const styles = StyleSheet.create({
   rowLabel: { color: '#2a241f', fontFamily: MONO, fontSize: 13 },
   dots: { flex: 1, borderBottomWidth: 1, borderStyle: 'dotted', borderColor: '#8d8170', marginBottom: 4 },
   rowValue: { color: '#1a1512', fontFamily: MONO, fontSize: 13, fontWeight: '700' },
-  reason: { color: '#8a1208', fontFamily: MONO, fontSize: 11 },
   assessment: { color: '#3a322b', fontFamily: MONO, fontSize: 11, lineHeight: 16, marginTop: 8, borderTopWidth: 1, borderStyle: 'dashed', borderColor: '#5a5246', paddingTop: 8 },
   red: { color: '#c0180c' },
   green: { color: '#3f8a22' },
@@ -322,7 +305,6 @@ const styles = StyleSheet.create({
   standMeta: { fontFamily: MONO, fontSize: 12, fontWeight: '700', letterSpacing: 1 },
   cta: { backgroundColor: '#a50f0c', borderRadius: 12, padding: 18, alignItems: 'center', marginTop: 4 },
   ctaText: { color: '#fff', fontSize: 20, fontWeight: '900', letterSpacing: 4 },
-  ctaSub: { color: '#ffb3a8', fontFamily: MONO, fontSize: 10, letterSpacing: 2, marginTop: 4 },
   lamp: { position: 'absolute', top: -140, alignSelf: 'center', width: 420, height: 320, borderRadius: 210, backgroundColor: 'rgba(255,190,110,0.07)', alignItems: 'center', justifyContent: 'flex-end' },
   lampCore: { width: 200, height: 120, borderRadius: 100, backgroundColor: 'rgba(255,200,130,0.08)', marginBottom: 40 },
   bill: { position: 'absolute', top: 0, left: 0, width: 46, height: 22, borderRadius: 2, backgroundColor: '#6f9a52', borderWidth: 1, borderColor: '#4a6e34', alignItems: 'center', justifyContent: 'center', opacity: 0.85 },
