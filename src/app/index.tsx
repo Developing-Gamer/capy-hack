@@ -17,10 +17,16 @@ export default function LobbyScreen() {
   const [error, setError] = useState<string | null>(null);
   const create = useMutation(api.rooms.create);
   const join = useMutation(api.rooms.join);
+  const startTrials = useMutation(api.rooms.start);
   const startBuyIn = useAction(api.buyin.start);
   const confirmBuyIn = useAction(api.buyin.confirm);
   const data = useQuery(api.rooms.get, code ? { code } : 'skip');
-  const me = data?.players.find((p) => p._id === playerId);
+  const players = data?.players ?? [];
+  const me = players.find((p) => p._id === playerId);
+  const host = players[0];
+  const isHost = !!host && host._id === playerId;
+  const unsigned = players.filter((p) => !p.paid).length;
+  const canStart = players.length >= 2 && unsigned === 0;
 
   const run = async (fn: () => Promise<{ code: string; playerId: Id<'players'> }>) => {
     setError(null);
@@ -51,6 +57,45 @@ export default function LobbyScreen() {
     }
   };
 
+  const start = async () => {
+    if (!code || !playerId) return;
+    setError(null);
+    try {
+      await startTrials({ code, playerId });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  if (code && data?.room.status === 'playing') {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <Text style={styles.kicker}>TEST BATCH {code}</Text>
+        <Text style={styles.begun}>THE TRIALS{'\n'}HAVE BEGUN</Text>
+        <Text style={styles.pot}>POT ${data.room.pot}</Text>
+        <View style={styles.list}>
+          {players.map((p) => (
+            <View key={p._id} style={styles.row}>
+              <Text style={styles.rowName}>{p.name}</Text>
+              <Text style={styles.rowMeta}>{p.limbs} LIMBS</Text>
+            </View>
+          ))}
+        </View>
+        <Text style={styles.hint}>First trial: Dinner Party. The game itself arrives in the next build.</Text>
+      </SafeAreaView>
+    );
+  }
+
+  const status = !me?.paid
+    ? 'Friends join with this code.'
+    : players.length < 2
+      ? 'Signed. Need at least one more subject.'
+      : unsigned > 0
+        ? `Signed. Waiting for ${unsigned} more to sign.`
+        : isHost
+          ? 'Everyone has signed. Start when ready.'
+          : `Everyone has signed. Waiting for ${host?.name} to start.`;
+
   if (code) {
     return (
       <SafeAreaView style={styles.screen}>
@@ -76,8 +121,13 @@ export default function LobbyScreen() {
             </Pressable>
           </View>
         )}
+        {isHost && me?.paid && (
+          <Pressable style={[styles.cta, !canStart && styles.disabled]} disabled={!canStart} onPress={start}>
+            <Text style={styles.ctaText}>START THE TRIALS</Text>
+          </Pressable>
+        )}
         {error && <Text style={styles.error}>{error}</Text>}
-        <Text style={styles.hint}>{me?.paid ? 'Signed. Waiting for the rest of the batch.' : 'Friends join with this code.'}</Text>
+        <Text style={styles.hint}>{status}</Text>
       </SafeAreaView>
     );
   }
@@ -130,6 +180,8 @@ const styles = StyleSheet.create({
   rowName: { color: '#e9dcc3', fontSize: 18, fontWeight: '700' },
   rowMeta: { color: '#f2a900', fontSize: 13, letterSpacing: 1 },
   hint: { color: '#8d8170', textAlign: 'center', marginTop: 12 },
+  disabled: { opacity: 0.4 },
+  begun: { color: '#ff4a3a', fontSize: 40, fontWeight: '800', lineHeight: 44, textAlign: 'center', letterSpacing: 2 },
   waiver: { gap: 10, marginTop: 16, borderWidth: 1, borderColor: '#5a1a14', borderRadius: 12, padding: 16, backgroundColor: '#140c0a' },
   waiverTitle: { color: '#ff4a3a', fontSize: 14, fontWeight: '800', letterSpacing: 4 },
   waiverText: { color: '#c9bba3', fontSize: 15, lineHeight: 21 },
