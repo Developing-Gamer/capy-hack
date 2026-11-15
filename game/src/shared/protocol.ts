@@ -56,4 +56,12 @@ export type GameToApp =
   | NetMessage
   | { type: 'haptic'; kind: HapticKind }
   | ({ type: 'death' } & DeathRecord)
-  | { type: 'result'; game: string; placements: Placement[]; deaths: DeathRecord[]; perf: { fps: number; minFps: number } };
+  | {
+      type: 'result';
+      game: string;
+      placements: Placement[];
+      deaths: DeathRecord[];
+      perf: { fps: number; minFps: number };
+      /** Optional: limbs each subject still has at the end, by player id. */
+      limbs?: Record<string, Limb[]>;
+    };
