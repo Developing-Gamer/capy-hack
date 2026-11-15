@@ -7,6 +7,7 @@ export default defineSchema({
     status: v.union(v.literal("lobby"), v.literal("playing"), v.literal("done")),
     buyIn: v.number(),
     pot: v.number(),
+    winnerId: v.optional(v.id("players")),
   }).index("by_code", ["code"]),
   players: defineTable({
     roomId: v.id("rooms"),
@@ -17,5 +18,15 @@ export default defineSchema({
     paid: v.boolean(),
     planId: v.optional(v.string()),
     paymentId: v.optional(v.string()),
+  }).index("by_room", ["roomId"]),
+  payouts: defineTable({
+    roomId: v.id("rooms"),
+    winnerId: v.id("players"),
+    amount: v.number(),
+    currency: v.string(),
+    status: v.union(v.literal("sending"), v.literal("processing"), v.literal("paid"), v.literal("owed")),
+    whopUserId: v.optional(v.string()),
+    transferId: v.optional(v.string()),
+    reason: v.optional(v.string()),
   }).index("by_room", ["roomId"]),
 });

@@ -11,6 +11,7 @@
 import type * as ai from "../ai.js";
 import type * as buyin from "../buyin.js";
 import type * as http from "../http.js";
+import type * as payout from "../payout.js";
 import type * as rooms from "../rooms.js";
 import type * as whop from "../whop.js";
 
@@ -24,6 +25,7 @@ declare const fullApi: ApiFromModules<{
   ai: typeof ai;
   buyin: typeof buyin;
   http: typeof http;
+  payout: typeof payout;
   rooms: typeof rooms;
   whop: typeof whop;
 }>;
