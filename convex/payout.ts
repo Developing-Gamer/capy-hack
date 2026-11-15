@@ -39,6 +39,18 @@ export const devEnd = mutation({
   },
 });
 
+/** Re-sends an owed payout, for example after the Whop key gains the payout:transfer_funds scope. Reuses the same idempotency key. */
+export const retry = internalMutation({
+  args: { roomId: v.id("rooms") },
+  handler: async (ctx, { roomId }) => {
+    const payout = await ctx.db.query("payouts").withIndex("by_room", (q) => q.eq("roomId", roomId)).unique();
+    if (!payout || payout.status !== "owed") return null;
+    await ctx.db.patch(payout._id, { status: "sending", reason: undefined });
+    await ctx.scheduler.runAfter(0, internal.payout.send, { payoutId: payout._id });
+    return payout._id;
+  },
+});
+
 export const forSend = internalQuery({
   args: { payoutId: v.id("payouts") },
   handler: async (ctx, { payoutId }) => {

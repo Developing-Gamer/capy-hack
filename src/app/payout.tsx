@@ -41,7 +41,7 @@ export default function PayoutScreen() {
 
   const lines: Line[] = won
     ? [
-        { label: `POT (${room.buyIn} × ${paid})`, value: money(payout?.amount ?? room.pot), tone: 'green' },
+        { label: `POT ($${room.buyIn} × ${paid})`, value: money(payout?.amount ?? room.pot), tone: 'green' },
         { label: 'LIMBS', value: `${winner.limbs}/4` },
         { label: 'WHOP', value: STATUS[status], tone: statusTone },
       ]
@@ -167,7 +167,9 @@ function Terminated() {
   return (
     <View style={styles.hero}>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flash, flashStyle]} />
-      <Animated.Text style={[styles.terminated, title]}>TERMINATED</Animated.Text>
+      <Animated.Text numberOfLines={1} adjustsFontSizeToFit style={[styles.terminated, title]}>
+        TERMINATED
+      </Animated.Text>
     </View>
   );
 }
@@ -305,7 +307,7 @@ const styles = StyleSheet.create({
   standMeta: { fontFamily: MONO, fontSize: 12, fontWeight: '700', letterSpacing: 1 },
   cta: { backgroundColor: '#a50f0c', borderRadius: 12, padding: 18, alignItems: 'center', marginTop: 4 },
   ctaText: { color: '#fff', fontSize: 20, fontWeight: '900', letterSpacing: 4 },
-  lamp: { position: 'absolute', top: -140, alignSelf: 'center', width: 420, height: 320, borderRadius: 210, backgroundColor: 'rgba(255,190,110,0.07)', alignItems: 'center', justifyContent: 'flex-end' },
+  lamp: { position: 'absolute', top: -140, alignSelf: 'center', width: 420, height: 320, borderRadius: 210, backgroundColor: 'rgba(255,190,110,0.04)', alignItems: 'center', justifyContent: 'flex-end' },
   lampCore: { width: 200, height: 120, borderRadius: 100, backgroundColor: 'rgba(255,200,130,0.08)', marginBottom: 40 },
   bill: { position: 'absolute', top: 0, left: 0, width: 46, height: 22, borderRadius: 2, backgroundColor: '#6f9a52', borderWidth: 1, borderColor: '#4a6e34', alignItems: 'center', justifyContent: 'center', opacity: 0.85 },
   billText: { color: '#2e4a1f', fontWeight: '900', fontSize: 13 },
