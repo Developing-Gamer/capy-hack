@@ -2,7 +2,7 @@ import { useAction, useMutation, useQuery } from 'convex/react';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Pressable, StyleSheet, Text, TextInput, TouchableWithoutFeedback, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../../convex/_generated/api';
@@ -83,28 +83,31 @@ export default function LobbyScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <Text style={styles.logo}>MEAT{'\n'}<Text style={styles.logoRed}>MARKET</Text></Text>
-      <TextInput style={styles.input} placeholder="Your name" placeholderTextColor="#6b5f52" value={name} onChangeText={setName} />
-      <Pressable style={styles.cta} disabled={!name} onPress={() => run(() => create({ name }))}>
-        <Text style={styles.ctaText}>START A BATCH</Text>
-      </Pressable>
-      <View style={styles.joinRow}>
-        <TextInput
-          style={[styles.input, styles.joinInput]}
-          placeholder="CODE"
-          placeholderTextColor="#6b5f52"
-          autoCapitalize="characters"
-          maxLength={4}
-          value={joinCode}
-          onChangeText={setJoinCode}
-        />
-        <Pressable style={[styles.cta, styles.ghost]} disabled={!name || joinCode.length !== 4} onPress={() => run(() => join({ code: joinCode, name }))}>
-          <Text style={styles.ctaText}>JOIN</Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <SafeAreaView style={styles.screen}>
+        <Text style={styles.logo}>MEAT{'\n'}<Text style={styles.logoRed}>MARKET</Text></Text>
+        <TextInput style={styles.input} placeholder="Your name" placeholderTextColor="#6b5f52" value={name} onChangeText={setName} returnKeyType="done" />
+        <Pressable style={styles.cta} disabled={!name} onPress={() => run(() => create({ name }))}>
+          <Text style={styles.ctaText}>START A BATCH</Text>
         </Pressable>
-      </View>
-      {error && <Text style={styles.error}>{error}</Text>}
-    </SafeAreaView>
+        <View style={styles.joinRow}>
+          <TextInput
+            style={[styles.input, styles.joinInput]}
+            placeholder="CODE"
+            placeholderTextColor="#6b5f52"
+            autoCapitalize="characters"
+            maxLength={4}
+            returnKeyType="done"
+            value={joinCode}
+            onChangeText={setJoinCode}
+          />
+          <Pressable style={[styles.cta, styles.ghost]} disabled={!name || joinCode.length !== 4} onPress={() => run(() => join({ code: joinCode, name }))}>
+            <Text style={styles.ctaText}>JOIN</Text>
+          </Pressable>
+        </View>
+        {error && <Text style={styles.error}>{error}</Text>}
+      </SafeAreaView>
+    </TouchableWithoutFeedback>
   );
 }
 
