@@ -15,5 +15,7 @@ export default defineSchema({
     limbs: v.number(),
     coins: v.number(),
     paid: v.boolean(),
+    planId: v.optional(v.string()),
+    paymentId: v.optional(v.string()),
   }).index("by_room", ["roomId"]),
 });

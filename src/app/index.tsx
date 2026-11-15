@@ -1,25 +1,53 @@
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '../../convex/_generated/api';
+import { Id } from '../../convex/_generated/dataModel';
 
 export default function LobbyScreen() {
   const [name, setName] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [code, setCode] = useState<string | null>(null);
+  const [playerId, setPlayerId] = useState<Id<'players'> | null>(null);
+  const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const create = useMutation(api.rooms.create);
   const join = useMutation(api.rooms.join);
+  const startBuyIn = useAction(api.buyin.start);
+  const confirmBuyIn = useAction(api.buyin.confirm);
   const data = useQuery(api.rooms.get, code ? { code } : 'skip');
+  const me = data?.players.find((p) => p._id === playerId);
 
-  const run = async (fn: () => Promise<{ code: string }>) => {
+  const run = async (fn: () => Promise<{ code: string; playerId: Id<'players'> }>) => {
     setError(null);
     try {
-      setCode((await fn()).code);
+      const room = await fn();
+      setCode(room.code);
+      setPlayerId(room.playerId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const signWaiver = async () => {
+    if (!playerId) return;
+    setError(null);
+    setPaying(true);
+    try {
+      const returnTo = Linking.createURL('/');
+      const url = await startBuyIn({ playerId, returnTo });
+      if (url) {
+        await WebBrowser.openAuthSessionAsync(url, returnTo);
+        await confirmBuyIn({ playerId });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPaying(false);
     }
   };
 
@@ -37,7 +65,19 @@ export default function LobbyScreen() {
             </View>
           ))}
         </View>
-        <Text style={styles.hint}>Friends join with this code. The waiver and $10 buy-in come next.</Text>
+        {me && !me.paid && (
+          <View style={styles.waiver}>
+            <Text style={styles.waiverTitle}>THE WAIVER</Text>
+            <Text style={styles.waiverText}>
+              I, {me.name}, surrender all claims to my limbs, my dignity, and my $10. The last one standing takes the pot.
+            </Text>
+            <Pressable style={styles.cta} disabled={paying} onPress={signWaiver}>
+              {paying ? <ActivityIndicator color="#fff" /> : <Text style={styles.ctaText}>SIGN IN BLOOD · ${data?.room.buyIn}</Text>}
+            </Pressable>
+          </View>
+        )}
+        {error && <Text style={styles.error}>{error}</Text>}
+        <Text style={styles.hint}>{me?.paid ? 'Signed. Waiting for the rest of the batch.' : 'Friends join with this code.'}</Text>
       </SafeAreaView>
     );
   }
@@ -87,4 +127,7 @@ const styles = StyleSheet.create({
   rowName: { color: '#e9dcc3', fontSize: 18, fontWeight: '700' },
   rowMeta: { color: '#f2a900', fontSize: 13, letterSpacing: 1 },
   hint: { color: '#8d8170', textAlign: 'center', marginTop: 12 },
+  waiver: { gap: 10, marginTop: 16, borderWidth: 1, borderColor: '#5a1a14', borderRadius: 12, padding: 16, backgroundColor: '#140c0a' },
+  waiverTitle: { color: '#ff4a3a', fontSize: 14, fontWeight: '800', letterSpacing: 4 },
+  waiverText: { color: '#c9bba3', fontSize: 15, lineHeight: 21 },
 });
