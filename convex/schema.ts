@@ -46,6 +46,8 @@ export default defineSchema({
     seats: v.array(seat),
     state: v.any(),
     over: v.boolean(),
+    /** Each human's fate once the trial is over. */
+    results: v.optional(v.array(v.object({ id: v.string(), dead: v.boolean(), lost: v.array(v.string()) }))),
   }).index("by_room", ["roomId"]),
   payouts: defineTable({
     roomId: v.id("rooms"),

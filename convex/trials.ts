@@ -11,6 +11,10 @@ const LEAD_MS = 5000;
 /** How long everyone looks at the assessment card before the next trial loads. */
 const ASSESS_MS = 9000;
 const ALL_LIMBS = ["ra", "la", "rl", "ll"];
+/** Limb the host reclaims from a subject who dies before Last Chamber; the fork arm goes last. */
+const RECLAIM = ["la", "ll", "rl", "ra"];
+/** The only trial whose deaths are final. */
+const LETHAL = "chamber";
 const HATS: Record<string, string> = { cone: "cone", "top hat": "top", bucket: "bucket", none: "none" };
 const BOTS = [
   { name: "Bruno", hat: "top" },
@@ -69,25 +73,28 @@ export const tick = internalMutation({
       await ctx.scheduler.runAfter(server.tickMs, internal.trials.tick, { matchId });
       return null;
     }
-    await ctx.db.patch(matchId, { state: match.state, over: true });
-    const results = server.results(match.state);
+    const results = server.results(match.state).filter((r) => match.seats.some((s) => s.id === r.id && !s.bot));
+    await ctx.db.patch(matchId, { state: match.state, over: true, results });
     for (const r of results) {
-      const seat = match.seats.find((s) => s.id === r.id);
-      if (!seat || seat.bot) continue;
       const player = await ctx.db.get(r.id as Id<"players">);
       if (!player) continue;
       const lost = [...new Set([...(player.lost ?? []), ...r.lost])];
-      await ctx.db.patch(player._id, { alive: player.alive !== false && !r.dead, lost, limbs: 4 - lost.length });
+      if (r.dead && match.game !== LETHAL && r.lost.length === 0) {
+        const limb = RECLAIM.find((l) => !lost.includes(l));
+        if (limb) lost.push(limb);
+      }
+      const out = match.game === LETHAL ? r.dead : lost.length >= ALL_LIMBS.length;
+      await ctx.db.patch(player._id, { alive: player.alive !== false && !out, lost, limbs: ALL_LIMBS.length - lost.length });
     }
-    const ranking = results.filter((r) => match.seats.some((s) => s.id === r.id && !s.bot)).map((r) => r.id as Id<"players">);
+    const ranking = results.map((r) => r.id as Id<"players">);
     await ctx.scheduler.runAfter(ASSESS_MS, internal.trials.next, { roomId: match.roomId, after: match.trial, ranking });
     return null;
   },
 });
 
 /**
- * After a trial's assessment: the next trial, or the payout once one subject is left (or the run is
- * over). If the last trial left nobody alive, the pot goes to whoever placed best in it.
+ * After a trial's assessment: the next trial, or the payout once Last Chamber is done or only one
+ * subject still has limbs. If everyone left died together, the pot goes to whoever placed best.
  */
 export const next = internalMutation({
   args: { roomId: v.id("rooms"), after: v.number(), ranking: v.array(v.id("players")) },
@@ -136,6 +143,7 @@ export const watch = query({
       startAt: match.startAt,
       seats: match.seats,
       over: match.over,
+      results: match.results ?? null,
       view: GAMES[match.game].view(match.state),
     };
   },

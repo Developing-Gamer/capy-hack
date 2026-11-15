@@ -72,13 +72,16 @@ export default function TrialsScreen() {
   if (!start || !match) return <View style={styles.screen} />;
 
   const meSeated = match.seats.some((s) => s.id === playerId);
+  const mine = match.results?.find((r) => r.id === playerId);
+  const meAlive = room?.players.find((p) => p._id === playerId)?.alive !== false;
+  const between = mine?.dead ? (meAlive ? 'LIMB RECLAIMED. CONTINUE.' : 'OUT OF LIMBS.') : 'STAND BY.';
   return (
     <View style={styles.screen}>
       <StatusBar hidden />
       <GameView key={match.matchId} start={start} net={match.view} onMessage={onMessage} />
       {(match.over || done === match.matchId) && (
         <View style={[styles.banner, { bottom: insets.bottom + 24 }]}>
-          <Text style={styles.bannerText}>STAND BY.</Text>
+          <Text style={styles.bannerText}>{between}</Text>
         </View>
       )}
       {!meSeated && (
