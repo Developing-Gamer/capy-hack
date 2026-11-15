@@ -20,16 +20,17 @@ const BOTS = [
 
 const alive = (p: Doc<"players">) => p.alive !== false;
 
-/** Starts the first playable trial at or after `index`, or ends the run. */
-export async function startTrial(ctx: MutationCtx, roomId: Id<"rooms">, index: number) {
-  const players = await ctx.db.query("players").withIndex("by_room", (q) => q.eq("roomId", roomId)).collect();
-  const living = players.filter(alive);
+/** First trial at or after `index` whose game has a server adapter (unbuilt games are skipped). */
+const playable = (index: number) => {
   let i = index;
   while (i < TRIALS.length && TRIALS[i] !== "payout" && !GAMES[TRIALS[i]]) i++;
-  if (i >= TRIALS.length || TRIALS[i] === "payout" || living.length === 0) {
-    await ctx.db.patch(roomId, { status: "done", trial: Math.min(i, TRIALS.length - 1), winners: living.map((p) => p._id) });
-    return;
-  }
+  return Math.min(i, TRIALS.length - 1);
+};
+
+/** Starts trial `i` with the room's living subjects, bots filling the empty seats. */
+export async function startTrial(ctx: MutationCtx, roomId: Id<"rooms">, i: number) {
+  const players = await ctx.db.query("players").withIndex("by_room", (q) => q.eq("roomId", roomId)).collect();
+  const living = players.filter(alive);
   const game = TRIALS[i];
   const server = GAMES[game];
   const seed = Math.floor(Math.random() * 2 ** 31);
@@ -69,7 +70,8 @@ export const tick = internalMutation({
       return null;
     }
     await ctx.db.patch(matchId, { state: match.state, over: true });
-    for (const r of server.results(match.state)) {
+    const results = server.results(match.state);
+    for (const r of results) {
       const seat = match.seats.find((s) => s.id === r.id);
       if (!seat || seat.bot) continue;
       const player = await ctx.db.get(r.id as Id<"players">);
@@ -77,17 +79,32 @@ export const tick = internalMutation({
       const lost = [...new Set([...(player.lost ?? []), ...r.lost])];
       await ctx.db.patch(player._id, { alive: player.alive !== false && !r.dead, lost, limbs: 4 - lost.length });
     }
-    await ctx.scheduler.runAfter(ASSESS_MS, internal.trials.next, { roomId: match.roomId, after: match.trial });
+    const ranking = results.filter((r) => match.seats.some((s) => s.id === r.id && !s.bot)).map((r) => r.id as Id<"players">);
+    await ctx.scheduler.runAfter(ASSESS_MS, internal.trials.next, { roomId: match.roomId, after: match.trial, ranking });
     return null;
   },
 });
 
+/**
+ * After a trial's assessment: the next trial, or the payout once one subject is left (or the run is
+ * over). If the last trial left nobody alive, the pot goes to whoever placed best in it.
+ */
 export const next = internalMutation({
-  args: { roomId: v.id("rooms"), after: v.number() },
-  handler: async (ctx, { roomId, after }) => {
+  args: { roomId: v.id("rooms"), after: v.number(), ranking: v.array(v.id("players")) },
+  handler: async (ctx, { roomId, after, ranking }) => {
     const room = await ctx.db.get(roomId);
     if (!room || room.status !== "playing" || room.trial !== after) return null;
-    await startTrial(ctx, roomId, after + 1);
+    const players = await ctx.db.query("players").withIndex("by_room", (q) => q.eq("roomId", roomId)).collect();
+    const living = players.filter(alive).map((p) => p._id);
+    const i = playable(after + 1);
+    if (living.length > 1 && TRIALS[i] !== "payout") {
+      await startTrial(ctx, roomId, i);
+      return null;
+    }
+    const winnerId = living.length === 1 ? living[0] : (ranking.find((id) => living.length === 0 || living.includes(id)) ?? living[0] ?? ranking[0]);
+    await ctx.db.patch(roomId, { trial: i });
+    if (winnerId) await ctx.runMutation(internal.payout.settle, { roomId, winnerId });
+    else await ctx.db.patch(roomId, { status: "done" });
     return null;
   },
 });

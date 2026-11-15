@@ -1,5 +1,5 @@
 import { Infer } from "convex/values";
-import { type Act, advance, type Fork, newReferee, recordAct, type Referee, viewOf } from "../game/src/games/dinner-rules";
+import { type Act, advance, type Fork, newReferee, placements, recordAct, type Referee, viewOf } from "../game/src/games/dinner-rules";
 import { seat } from "./schema";
 
 export type SeatInfo = Infer<typeof seat>;
@@ -26,6 +26,7 @@ export interface ServerGame {
   over(state: unknown): boolean;
   /** What every phone receives (as a `net` message) on each change. */
   view(state: unknown): unknown;
+  /** Every seat's fate, best placed first. */
   results(state: unknown): SeatResult[];
 }
 
@@ -47,8 +48,13 @@ const dinner: ServerGame = {
   tick: (state, t) => void advance(state as Referee, t - SLACK),
   over: (state) => (state as Referee).over,
   view: (state) => viewOf(state as Referee),
-  results: (state) =>
-    (state as Referee).outcomes.map((o) => ({ id: o.id, dead: o.status === "dead", lost: o.lost })),
+  results: (state) => {
+    const ref = state as Referee;
+    return placements(ref).map((p) => {
+      const o = ref.outcomes.find((x) => x.id === p.id)!;
+      return { id: o.id, dead: o.status === "dead", lost: o.lost };
+    });
+  },
 };
 
 interface SelfReport {
@@ -85,7 +91,7 @@ export function selfReported(seats = 4, deadline = 240): ServerGame {
       return s.humans.every((id) => s.reports[id]);
     },
     view: (state) => ({ reported: Object.keys((state as SelfReport).reports) }),
-    results: (state) => Object.values((state as SelfReport).reports),
+    results: (state) => Object.values((state as SelfReport).reports).sort((a, b) => Number(a.dead) - Number(b.dead)),
   };
 }
 

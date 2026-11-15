@@ -30,16 +30,25 @@ export default function LobbyScreen() {
   const canStart = players.length >= 2 && unsigned === 0;
 
   const playing = data?.room.status === 'playing';
-  const launched = useRef(false);
+  const launched = useRef<string | null>(null);
+  const landed = useRef<string | null>(null);
   const enterTrial = () => {
     if (!code || !playerId) return;
     router.push({ pathname: '/trials', params: { code, me: playerId } });
   };
   useEffect(() => {
-    if (!playing || launched.current || !code || !playerId) return;
-    launched.current = true;
+    if (!playing || launched.current === code || !code || !playerId) return;
+    launched.current = code;
     router.push({ pathname: '/trials', params: { code, me: playerId } });
   }, [playing, code, playerId]);
+
+  const done = data?.room.status === 'done';
+  useEffect(() => {
+    if (!done || landed.current === code || !code || !playerId) return;
+    landed.current = code;
+    if (router.canDismiss()) router.dismissAll();
+    router.push({ pathname: '/payout', params: { code, me: playerId } });
+  }, [done, code, playerId]);
 
   const run = async (fn: () => Promise<{ code: string; playerId: Id<'players'> }>) => {
     setError(null);
@@ -112,7 +121,7 @@ export default function LobbyScreen() {
           ? 'Everyone has signed. Start when ready.'
           : `Everyone has signed. Waiting for ${host?.name} to start.`;
 
-  if (code) {
+  if (code && !done) {
     return (
       <SafeAreaView style={styles.screen}>
         <Text style={styles.kicker}>TEST BATCH</Text>

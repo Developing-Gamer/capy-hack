@@ -19,8 +19,7 @@ export default defineSchema({
     trial: v.optional(v.number()),
     matchId: v.optional(v.id("matches")),
     seed: v.optional(v.number()),
-    /** Humans still alive when the last trial ended. */
-    winners: v.optional(v.array(v.id("players"))),
+    winnerId: v.optional(v.id("players")),
   }).index("by_code", ["code"]),
   players: defineTable({
     roomId: v.id("rooms"),
@@ -47,5 +46,15 @@ export default defineSchema({
     seats: v.array(seat),
     state: v.any(),
     over: v.boolean(),
+  }).index("by_room", ["roomId"]),
+  payouts: defineTable({
+    roomId: v.id("rooms"),
+    winnerId: v.id("players"),
+    amount: v.number(),
+    currency: v.string(),
+    status: v.union(v.literal("sending"), v.literal("processing"), v.literal("paid"), v.literal("owed")),
+    whopUserId: v.optional(v.string()),
+    transferId: v.optional(v.string()),
+    reason: v.optional(v.string()),
   }).index("by_room", ["roomId"]),
 });

@@ -1,9 +1,9 @@
 import { useMutation, useQuery } from 'convex/react';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -41,7 +41,7 @@ function useServerOffset() {
   return offset;
 }
 
-/** The online run: follows the room's current trial on every phone until the payout. */
+/** The online run: follows the room's current trial on every phone; the lobby takes over at the payout. */
 export default function TrialsScreen() {
   const { code, me } = useLocalSearchParams<{ code: string; me: string }>();
   const playerId = me as Id<'players'>;
@@ -77,25 +77,6 @@ export default function TrialsScreen() {
     }
   };
 
-  if (room?.room.status === 'done') {
-    const winners = room.players.filter((p) => room.room.winners?.includes(p._id));
-    return (
-      <SafeAreaView style={styles.end}>
-        <Text style={styles.kicker}>TEST BATCH {room.room.code} · CONCLUDED</Text>
-        <Text style={styles.title}>{winners.length ? 'SURVIVORS' : 'NO SURVIVORS'}</Text>
-        {winners.map((p) => (
-          <Text key={p._id} style={styles.name}>
-            {p.name} · {p.limbs} LIMBS
-          </Text>
-        ))}
-        <Text style={styles.pot}>POT ${room.room.pot}</Text>
-        <Pressable style={styles.btn} onPress={() => router.replace('/')}>
-          <Text style={styles.btnText}>LOBBY</Text>
-        </Pressable>
-      </SafeAreaView>
-    );
-  }
-
   if (!start || !match) return <View style={styles.screen} />;
 
   const meSeated = match.seats.some((s) => s.id === playerId);
@@ -121,11 +102,4 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000' },
   banner: { position: 'absolute', left: 24, right: 24, padding: 12, alignItems: 'center', borderRadius: 10, backgroundColor: 'rgba(20,12,10,0.85)', borderWidth: 1, borderColor: '#5a1a14' },
   bannerText: { color: '#e9dcc3', fontSize: 13, fontWeight: '800', letterSpacing: 3 },
-  end: { flex: 1, backgroundColor: '#0b0908', padding: 24, gap: 14, justifyContent: 'center' },
-  kicker: { color: '#a3967f', letterSpacing: 4, textAlign: 'center' },
-  title: { color: '#ff4a3a', fontSize: 40, fontWeight: '800', textAlign: 'center', letterSpacing: 2 },
-  name: { color: '#e9dcc3', fontSize: 22, fontWeight: '700', textAlign: 'center' },
-  pot: { color: '#9fe07a', fontSize: 28, fontWeight: '800', textAlign: 'center' },
-  btn: { marginTop: 24, padding: 18, alignItems: 'center', backgroundColor: '#a50f0c', borderRadius: 12 },
-  btnText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 3 },
 });
