@@ -538,7 +538,6 @@ export const createGrinder: GameFactory = (ctx) => {
   let surgeOn = false;
   let surgeWarn = false;
   let overdrive = false;
-  let firstTap = false;
   const inputs: Hand[] = [];
   /** [step, hand] for every human tap, for replay / sync. */
   const inputLog: [number, Hand][] = [];
@@ -714,7 +713,6 @@ export const createGrinder: GameFactory = (ctx) => {
       engine.shake(1);
       engine.flash(0.5, 0xff2a10);
       sound.muffle(0.35);
-      hud.setHint('');
       ui.classList.add('off');
       return;
     }
@@ -843,10 +841,6 @@ export const createGrinder: GameFactory = (ctx) => {
     inputs.push(hand);
     padEl[hand].classList.add('hit');
     setTimeout(() => padEl[hand].classList.remove('hit'), 90);
-    if (!firstTap) {
-      firstTap = true;
-      setTimeout(() => hud.setHint(''), 2500);
-    }
   }
   ctx.surface.addEventListener('pointerdown', (e) => {
     if (!canTap()) return;
@@ -1102,7 +1096,6 @@ export const createGrinder: GameFactory = (ctx) => {
   hud.setPot(start.pot);
   hud.setLimbs(me.limbs);
   hud.setTimer(ROUND);
-  hud.setHint('<b>LEFT</b> \u00b7 <b>RIGHT</b> \u00b7 <b>LEFT</b>');
   void hud
     .intro('SIMULATION 03', 'THE GRINDER', ['TAP <b>LEFT</b>, <b>RIGHT</b>, <b>LEFT</b>. HAUL AWAY FROM THE TEETH.', '<b>SAME HAND TWICE</b> AND YOU SLIP.'])
     .then(() => {
