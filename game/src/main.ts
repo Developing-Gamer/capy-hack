@@ -1,5 +1,6 @@
 import './style.css';
 import { createDinner } from './games/dinner';
+import { createMachine } from './games/machine';
 import { onAppMessage, inApp, send } from './shared/bridge';
 import type { GameContext, GameFactory } from './shared/game';
 import { Hud } from './shared/hud';
@@ -10,6 +11,7 @@ import { Rng } from './shared/util';
 /** Register new games here; the key is the `game` field of the start message. */
 const GAMES: Record<string, GameFactory> = {
   dinner: createDinner,
+  machine: createMachine,
 };
 
 const app = document.getElementById('app')!;
@@ -43,10 +45,10 @@ function begin(msg: StartMessage) {
       send({ type: 'death', ...rec });
       if (id === msg.you) send({ type: 'haptic', kind: 'death' });
     },
-    finish(placements) {
+    finish(placements, extra) {
       if (finished) return;
       finished = true;
-      send({ type: 'result', game: msg.game, placements, deaths, perf: engine.perf() });
+      send({ type: 'result', game: msg.game, placements, deaths, perf: engine.perf(), ...extra });
     },
     elapsed: () => gameTime,
   };
