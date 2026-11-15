@@ -1216,7 +1216,7 @@ export const createChamber: GameFactory = (ctx) => {
     else if (h.you && passedFrom && (phase === 'decide' || phase === 'handoff')) hud.setStatus(`${passedFrom.info.name.toUpperCase()} PASSED IT`, 'danger');
     else if (h.you && (phase === 'decide' || phase === 'handoff')) hud.setStatus('YOUR TURN', 'danger');
     else if (phase === 'cock' || phase === 'hold') hud.setStatus('…', 'warn');
-    else hud.setStatus(`${h.info.name.toUpperCase()}'S TURN`, 'calm');
+    else hud.setStatus(h.you ? 'YOUR TURN' : `${h.info.name.toUpperCase()}'S TURN`, 'calm');
 
     boardT += dt;
     if (boardT > 0.15) {
