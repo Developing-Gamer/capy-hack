@@ -41,7 +41,7 @@ export default function LobbyScreen() {
       const returnTo = Linking.createURL('/');
       const url = await startBuyIn({ playerId, returnTo });
       if (url) {
-        await WebBrowser.openAuthSessionAsync(url, returnTo);
+        await WebBrowser.openAuthSessionAsync(url, returnTo, { preferEphemeralSession: true });
         await confirmBuyIn({ playerId });
       }
     } catch (e) {
