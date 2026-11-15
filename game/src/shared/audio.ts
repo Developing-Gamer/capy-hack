@@ -13,6 +13,7 @@ class Sound {
   private verb!: ConvolverNode;
   private noise!: AudioBuffer;
   private droneNodes: { stop: () => void } | null = null;
+  private motorNodes: { stop: () => void; load: (v: number) => void } | null = null;
   private beatTimer = 0;
   private beatStep = 0;
   private beatNext = 0;
@@ -300,6 +301,112 @@ class Sound {
         all.forEach((o) => o.stop(n + 2));
       },
     };
+  }
+
+  /** Meat in the blades: bone crunch, wet squelch and a low bog of the motor. */
+  grind(size = 1) {
+    if (!this.ctx) return;
+    this.crunch(size);
+    this.squelch(size * 0.8);
+    this.burst(this.t, 0.3, 'lowpass', 260, 0.7 * size, 1, 0.3);
+  }
+
+  /** Hand slipping off a steel rail: a short metal screech. */
+  scrape() {
+    if (!this.ctx) return;
+    const t = this.t;
+    const s = this.noiseSrc(t, 0.45);
+    const f = this.filter('bandpass', 2600, 14);
+    f.frequency.setValueAtTime(2600, t);
+    f.frequency.exponentialRampToValueAtTime(700, t + 0.4);
+    const g = this.ctx.createGain();
+    this.env(g, t, 0.9, 0.005, 0.4);
+    s.connect(f).connect(g);
+    this.out(g, 0.4);
+    this.osc('sawtooth', 1500, 520, t, 0.35, 0.07, 0.3);
+  }
+
+  /** A hand slapping onto a steel rail. */
+  grab() {
+    if (!this.ctx) return;
+    this.metal(this.t, rand(160, 210), 0.09, 0.1);
+    this.burst(this.t, 0.03, 'bandpass', rand(700, 1100), 0.3, 2);
+  }
+
+  /** Two-tone factory klaxon. */
+  klaxon(dur = 1.2) {
+    if (!this.ctx) return;
+    const t = this.t;
+    for (let i = 0; i * 0.3 < dur; i++) this.osc('square', i % 2 ? 330 : 440, i % 2 ? 329 : 439, t + i * 0.3, 0.28, 0.07, 0.6);
+  }
+
+  /**
+   * Grinder motor bed: a low saw growl chopped at blade rate with a strained whine. Call
+   * `motorLoad(0..1)` while something is in the blades to bog it down.
+   */
+  motor(on: boolean) {
+    if (!this.ctx) return;
+    if (!on) {
+      this.motorNodes?.stop();
+      this.motorNodes = null;
+      return;
+    }
+    if (this.motorNodes) return;
+    const ctx = this.ctx, t = this.t;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.35, t + 1.2);
+    const lp = this.filter('lowpass', 420, 3);
+    const am = ctx.createGain();
+    am.gain.value = 0.65;
+    const chop = ctx.createOscillator();
+    chop.type = 'square';
+    chop.frequency.value = 14;
+    const chopG = ctx.createGain();
+    chopG.gain.value = 0.35;
+    chop.connect(chopG).connect(am.gain);
+    const growls = [46, 69.4].map((f) => {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = f;
+      o.connect(lp);
+      return o;
+    });
+    lp.connect(am).connect(g);
+    const whine = ctx.createOscillator();
+    whine.frequency.value = 820;
+    const whineG = ctx.createGain();
+    whineG.gain.value = 0.018;
+    whine.connect(whineG).connect(g);
+    const grit = ctx.createBufferSource();
+    grit.buffer = this.noise;
+    grit.loop = true;
+    const gritG = ctx.createGain();
+    gritG.gain.value = 0.05;
+    grit.connect(this.filter('bandpass', 1800, 0.8)).connect(gritG).connect(am);
+    g.connect(this.sfxBus);
+    const all = [chop, ...growls, whine, grit];
+    all.forEach((o) => o.start(t));
+    this.motorNodes = {
+      load: (v) => {
+        const n = this.t;
+        growls.forEach((o, i) => o.frequency.setTargetAtTime((i ? 69.4 : 46) * (1 - v * 0.22), n, 0.08));
+        whine.frequency.setTargetAtTime(820 - v * 280, n, 0.08);
+        gritG.gain.setTargetAtTime(0.05 + v * 0.3, n, 0.05);
+        chop.frequency.setTargetAtTime(14 - v * 5, n, 0.08);
+      },
+      stop: () => {
+        const n = this.t;
+        growls.forEach((o) => o.frequency.setTargetAtTime(12, n, 0.6));
+        whine.frequency.setTargetAtTime(120, n, 0.6);
+        g.gain.setTargetAtTime(0.0001, n, 0.7);
+        all.forEach((o) => o.stop(n + 3));
+      },
+    };
+  }
+
+  motorLoad(v: number) {
+    this.motorNodes?.load(v);
   }
 
   /** Mechanical beat: kick, clank, hiss and pistons, scheduled ahead on a timer. */

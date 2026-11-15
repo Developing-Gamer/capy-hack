@@ -109,6 +109,10 @@ export default function LobbyScreen() {
         <Text style={styles.ctaText}>PLAY DINNER PARTY</Text>
         <Text style={styles.soloSub}>SOLO · 3 BOTS · NO BUY-IN</Text>
       </Pressable>
+      <Pressable style={[styles.cta, styles.soloNext]} onPress={() => router.push({ pathname: '/play/[game]', params: { game: 'grinder', name } })}>
+        <Text style={styles.ctaText}>PLAY THE GRINDER</Text>
+        <Text style={styles.soloSub}>SOLO · 3 BOTS · NO BUY-IN</Text>
+      </Pressable>
     </SafeAreaView>
   );
 }
@@ -120,6 +124,7 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: '#3a322b', borderRadius: 12, padding: 16, color: '#e9dcc3', fontSize: 18 },
   cta: { backgroundColor: '#a50f0c', borderRadius: 12, padding: 18, alignItems: 'center' },
   solo: { marginTop: 18, backgroundColor: '#140c0a', borderWidth: 1, borderColor: '#a50f0c' },
+  soloNext: { backgroundColor: '#140c0a', borderWidth: 1, borderColor: '#a50f0c' },
   soloSub: { color: '#a3967f', fontSize: 11, letterSpacing: 2, marginTop: 4 },
   ghost: { backgroundColor: '#1a1512', borderWidth: 1, borderColor: '#5a4d40', paddingHorizontal: 28 },
   ctaText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 2 },

@@ -16,7 +16,9 @@ Dev URL params (desktop only, outside the WebView): `?game=dinner` picks the gam
 `?seed=7` fixes the seed, `?auto` lets a bot play for you, `?speed=4` runs 4 sim steps per
 frame, `?nohud` hides the HUD for clean captures, `?debug` logs fps. In Dinner Party,
 keys 1-3 / Z-C / V-N make the host shoot bot 1-3 (head / arm then head / gut then head) and
-Y shoots you.
+Y shoots you. In The Grinder (`?game=grinder`), A / D or the arrow keys are the left / right
+hands, keys 1-3 feed bot 1-3 to the grinder, Y feeds you, and `?tp` swaps in a side camera
+for checking poses.
 
 ## Bridge
 
@@ -68,6 +70,22 @@ The page only accepts one `start`; to replay, remount the WebView (the play scre
 4. Use `ctx.rng` for all gameplay randomness so a seed replays the same round.
 5. `npm run game:build`, commit `src/game/html.ts`, and open it from the app with
    `router.push({ pathname: '/play/[game]', params: { game: '<name>' } })`.
+
+### Shared-layer additions (all optional, existing games unaffected)
+
+- `Surface.vel` (`gore.ts`): a conveyor velocity. Decals and resting gibs on that surface ride
+  along with it and drop off its edges; mutate it as the belt changes speed.
+- `Sound.grind`, `scrape`, `grab`, `klaxon`, and a looping `motor(on)` with `motorLoad(0..1)`
+  (`audio.ts`).
+- `BoardRow.label` (`hud.ts`) overrides the right-hand value text of a scoreboard row.
+
+## Games
+
+- `dinner` (`src/games/dinner.ts`): Dinner Party. Eat while the host reads; he shoots movers.
+- `grinder` (`src/games/grinder.ts`): The Grinder. Alternate left / right taps to haul back along
+  the rails of a conveyor that feeds a meat grinder feet first; the same hand twice slips. The
+  belt speeds up and surges, and it stops when 2 of 4 are left (1 of 2–3). The sim runs on a
+  fixed 60 Hz step from the seed plus the human tap log, so it can be replayed or synced.
 
 `src/games/dinner.ts` is the reference: room building, a scripted antagonist, bot brains with
 personalities, an execution queue with slow-mo kills, and the round result.
