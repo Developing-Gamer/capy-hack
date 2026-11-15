@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Meat Market — prototype</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+</head>
+<body>
+  <aside class="side">
+    <h1>MEAT<span>MARKET</span></h1>
+    <p>Machine Party on your phone. $10 buy-in, lose a trial and lose a limb, last subject alive takes the pot. First-person 3D prototype.</p>
+    <nav class="tabs" id="tabs"></nav>
+    <div class="help" id="help"></div>
+    <div class="tools">
+      <button id="kill">Trigger death</button>
+      <button id="heal">Reset limbs</button>
+      <button id="mute">Sound: on</button>
+    </div>
+  </aside>
+
+  <div class="phone">
+    <div class="screen" id="screen">
+      <canvas id="gl"></canvas>
+      <div class="shade"></div>
+      <div class="grain"></div>
+      <div id="vig"></div>
+      <canvas id="blood"></canvas>
+      <div id="flash"></div>
+      <div class="hud" id="hud"></div>
+      <div class="over" id="over">
+        <div class="ov-k" id="ovk"></div>
+        <div class="ov-t" id="ovt"></div>
+        <div class="ov-c" id="ovc"></div>
+        <div class="ov-l" id="ovl"></div>
+        <div class="ov-b">
+          <button class="cta" id="ovnext"></button>
+          <button class="cta ghost" id="ovretry">TRY AGAIN</button>
+        </div>
+      </div>
+      <div class="toast" id="toast"></div>
+      <div class="island"></div>
+    </div>
+  </div>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
