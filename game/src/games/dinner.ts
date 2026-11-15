@@ -1018,7 +1018,7 @@ export const createDinner: GameFactory = (ctx) => {
   }
 
   function hudTick(dt: number) {
-    hud.setTimer(ROUND - elapsed);
+    if (!finished) hud.setTimer(ROUND - elapsed);
     const watching = host.down > 0.5;
     if (!you.alive) hud.setStatus('', 'hidden');
     else if (phase === 'intro') hud.setStatus('', 'hidden');
