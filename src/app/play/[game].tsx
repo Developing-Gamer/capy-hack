@@ -1,4 +1,5 @@
 import * as Haptics from 'expo-haptics';
+import { useQuery } from 'convex/react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useRef, useState } from 'react';
@@ -6,7 +7,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
-import type { GameToApp, HapticKind, PlayerInfo, StartMessage } from '../../../game/src/shared/protocol';
+import { api } from '../../../convex/_generated/api';
+import type { GameToApp, HapticKind, Hat, PlayerInfo, StartMessage } from '../../../game/src/shared/protocol';
 import { GAME_HTML } from '../../game/html';
 
 const ALL_LIMBS: PlayerInfo['limbs'] = ['ra', 'la', 'rl', 'll'];
@@ -31,9 +33,18 @@ async function haptic(kind: HapticKind) {
   }
 }
 
-/** Solo play: embeds the game bundle in a WebView and runs one round against bots. */
+const HAT: Record<string, Hat> = { cone: 'cone', 'top hat': 'top', bucket: 'bucket', none: 'none' };
+
+function seedFrom(text: string) {
+  let h = 2166136261;
+  for (const c of text) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  return h >>> 0;
+}
+
+/** Embeds the game bundle in a WebView. Solo by default; with a room code, seats the room's players and fills the rest with bots. */
 export default function PlayScreen() {
-  const { game, name } = useLocalSearchParams<{ game: string; name?: string }>();
+  const { game, name, code, me } = useLocalSearchParams<{ game: string; name?: string; code?: string; me?: string }>();
+  const room = useQuery(api.rooms.get, code ? { code } : 'skip');
   const insets = useSafeAreaInsets();
   const ref = useRef<WebView<object>>(null);
   const [round, setRound] = useState(0);
@@ -47,19 +58,24 @@ export default function PlayScreen() {
       return;
     }
     if (msg.type === 'ready') {
+      const seated: PlayerInfo[] = room
+        ? room.players.map((p) => ({ id: p._id, name: p.name, hat: HAT[p.hat] ?? 'none', limbs: ALL_LIMBS, isBot: p._id !== me }))
+        : [{ id: 'you', name: name?.trim() || 'You', hat: 'cone', limbs: ALL_LIMBS, isBot: false }];
       const start: StartMessage = {
         type: 'start',
         game: game ?? 'dinner',
-        seed: Math.floor(Math.random() * 1e9),
-        you: 'you',
-        pot: 40,
-        players: [{ id: 'you', name: name?.trim() || 'You', hat: 'cone', limbs: ALL_LIMBS, isBot: false }, ...BOTS],
+        seed: room ? seedFrom(`${room.room.code}:${round}`) : Math.floor(Math.random() * 1e9),
+        you: room && me ? me : 'you',
+        pot: room ? room.room.pot : 40,
+        players: [...seated, ...BOTS].slice(0, 4),
       };
       ref.current?.postMessage(JSON.stringify(start));
     }
     else if (msg.type === 'haptic') void haptic(msg.kind);
     else if (msg.type === 'result') setOver(true);
   };
+
+  if (code && !room) return <View style={styles.screen} />;
 
   return (
     <View style={styles.screen}>

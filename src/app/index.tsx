@@ -2,7 +2,7 @@ import { useAction, useMutation, useQuery } from 'convex/react';
 import { router } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Keyboard, Pressable, StyleSheet, Text, TextInput, TouchableWithoutFeedback, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -28,6 +28,18 @@ export default function LobbyScreen() {
   const isHost = !!host && host._id === playerId;
   const unsigned = players.filter((p) => !p.paid).length;
   const canStart = players.length >= 2 && unsigned === 0;
+
+  const playing = data?.room.status === 'playing';
+  const launched = useRef(false);
+  const enterTrial = () => {
+    if (!code || !playerId) return;
+    router.push({ pathname: '/play/[game]', params: { game: 'dinner', code, me: playerId } });
+  };
+  useEffect(() => {
+    if (!playing || launched.current || !code || !playerId) return;
+    launched.current = true;
+    router.push({ pathname: '/play/[game]', params: { game: 'dinner', code, me: playerId } });
+  }, [playing, code, playerId]);
 
   const run = async (fn: () => Promise<{ code: string; playerId: Id<'players'> }>) => {
     setError(null);
@@ -82,7 +94,10 @@ export default function LobbyScreen() {
             </View>
           ))}
         </View>
-        <Text style={styles.hint}>First trial: Dinner Party. The game itself arrives in the next build.</Text>
+        <Pressable style={styles.cta} onPress={enterTrial}>
+          <Text style={styles.ctaText}>ENTER DINNER PARTY</Text>
+        </Pressable>
+        <Text style={styles.hint}>First trial: Dinner Party.</Text>
       </SafeAreaView>
     );
   }
