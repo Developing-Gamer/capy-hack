@@ -1,4 +1,5 @@
 import { useAction, useMutation, useQuery } from 'convex/react';
+import { router } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
@@ -104,6 +105,10 @@ export default function LobbyScreen() {
         </Pressable>
       </View>
       {error && <Text style={styles.error}>{error}</Text>}
+      <Pressable style={[styles.cta, styles.solo]} onPress={() => router.push({ pathname: '/play/[game]', params: { game: 'dinner', name } })}>
+        <Text style={styles.ctaText}>PLAY DINNER PARTY</Text>
+        <Text style={styles.soloSub}>SOLO · 3 BOTS · NO BUY-IN</Text>
+      </Pressable>
     </SafeAreaView>
   );
 }
@@ -114,6 +119,8 @@ const styles = StyleSheet.create({
   logoRed: { color: '#ff4a3a' },
   input: { borderWidth: 1, borderColor: '#3a322b', borderRadius: 12, padding: 16, color: '#e9dcc3', fontSize: 18 },
   cta: { backgroundColor: '#a50f0c', borderRadius: 12, padding: 18, alignItems: 'center' },
+  solo: { marginTop: 18, backgroundColor: '#140c0a', borderWidth: 1, borderColor: '#a50f0c' },
+  soloSub: { color: '#a3967f', fontSize: 11, letterSpacing: 2, marginTop: 4 },
   ghost: { backgroundColor: '#1a1512', borderWidth: 1, borderColor: '#5a4d40', paddingHorizontal: 28 },
   ctaText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 2 },
   joinRow: { flexDirection: 'row', gap: 10 },
