@@ -109,6 +109,10 @@ export default function LobbyScreen() {
         <Text style={styles.ctaText}>PLAY DINNER PARTY</Text>
         <Text style={styles.soloSub}>SOLO · 3 BOTS · NO BUY-IN</Text>
       </Pressable>
+      <Pressable style={[styles.cta, styles.solo]} onPress={() => router.push({ pathname: '/play/[game]', params: { game: 'chamber', name } })}>
+        <Text style={styles.ctaText}>PLAY LAST CHAMBER</Text>
+        <Text style={styles.soloSub}>SOLO · 3 BOTS · NO BUY-IN</Text>
+      </Pressable>
     </SafeAreaView>
   );
 }

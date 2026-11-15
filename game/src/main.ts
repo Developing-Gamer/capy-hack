@@ -1,4 +1,5 @@
 import './style.css';
+import { createChamber } from './games/chamber';
 import { createDinner } from './games/dinner';
 import { onAppMessage, inApp, send } from './shared/bridge';
 import type { GameContext, GameFactory } from './shared/game';
@@ -10,6 +11,7 @@ import { Rng } from './shared/util';
 /** Register new games here; the key is the `game` field of the start message. */
 const GAMES: Record<string, GameFactory> = {
   dinner: createDinner,
+  chamber: createChamber,
 };
 
 const app = document.getElementById('app')!;
