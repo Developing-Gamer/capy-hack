@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { action, internalMutation, internalQuery } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation } from "./_generated/server";
 import { whop } from "./whop";
 
 export const player = internalQuery({
@@ -74,5 +74,15 @@ export const confirm = action({
     if (!payment) return false;
     await ctx.runMutation(internal.buyin.markPaid, { playerId, paymentId: payment.id });
     return true;
+  },
+});
+
+/** Dev only: signs a player without a Whop checkout, for multi-client testing. Refused against production Whop. */
+export const devSign = mutation({
+  args: { playerId: v.id("players") },
+  handler: async (ctx, { playerId }) => {
+    if (process.env.WHOP_ENVIRONMENT === "production") throw new Error("devSign is disabled in production");
+    await ctx.runMutation(internal.buyin.markPaid, { playerId, paymentId: "dev" });
+    return null;
   },
 });

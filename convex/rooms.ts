@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { startTrial } from "./trials";
 
 const HATS = ["cone", "top hat", "bucket", "none"];
 const BUY_IN = 10;
@@ -43,7 +44,7 @@ export const start = mutation({
     if (players[0]?._id !== playerId) throw new Error("Only the host can start the trials");
     if (players.length < 2) throw new Error("Need at least 2 subjects");
     if (!players.every((p) => p.paid)) throw new Error("Everyone has to sign the waiver first");
-    await ctx.db.patch(room._id, { status: "playing" });
+    await startTrial(ctx, room._id, 0);
   },
 });
 

@@ -1,7 +1,8 @@
 import { useAction, useMutation, useQuery } from 'convex/react';
+import { router } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Keyboard, Pressable, StyleSheet, Text, TextInput, TouchableWithoutFeedback, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -27,6 +28,27 @@ export default function LobbyScreen() {
   const isHost = !!host && host._id === playerId;
   const unsigned = players.filter((p) => !p.paid).length;
   const canStart = players.length >= 2 && unsigned === 0;
+
+  const playing = data?.room.status === 'playing';
+  const launched = useRef<string | null>(null);
+  const landed = useRef<string | null>(null);
+  const enterTrial = () => {
+    if (!code || !playerId) return;
+    router.push({ pathname: '/trials', params: { code, me: playerId } });
+  };
+  useEffect(() => {
+    if (!playing || launched.current === code || !code || !playerId) return;
+    launched.current = code;
+    router.push({ pathname: '/trials', params: { code, me: playerId } });
+  }, [playing, code, playerId]);
+
+  const done = data?.room.status === 'done';
+  useEffect(() => {
+    if (!done || landed.current === code || !code || !playerId) return;
+    landed.current = code;
+    if (router.canDismiss()) router.dismissAll();
+    router.push({ pathname: '/payout', params: { code, me: playerId } });
+  }, [done, code, playerId]);
 
   const run = async (fn: () => Promise<{ code: string; playerId: Id<'players'> }>) => {
     setError(null);
@@ -81,22 +103,24 @@ export default function LobbyScreen() {
             </View>
           ))}
         </View>
-        <Text style={styles.hint}>First trial: Dinner Party. The game itself arrives in the next build.</Text>
+        <Pressable style={styles.cta} onPress={enterTrial}>
+          <Text style={styles.ctaText}>ENTER</Text>
+        </Pressable>
       </SafeAreaView>
     );
   }
 
   const status = !me?.paid
-    ? 'Friends join with this code.'
+    ? 'SHARE THE CODE.'
     : players.length < 2
-      ? 'Signed. Need at least one more subject.'
+      ? 'NEED ONE MORE SUBJECT.'
       : unsigned > 0
-        ? `Signed. Waiting for ${unsigned} more to sign.`
+        ? `WAITING ON ${unsigned} SIGNATURE${unsigned > 1 ? 'S' : ''}.`
         : isHost
-          ? 'Everyone has signed. Start when ready.'
-          : `Everyone has signed. Waiting for ${host?.name} to start.`;
+          ? 'ALL SIGNED.'
+          : `WAITING FOR ${host?.name.toUpperCase()}.`;
 
-  if (code) {
+  if (code && !done) {
     return (
       <SafeAreaView style={styles.screen}>
         <Text style={styles.kicker}>TEST BATCH</Text>
@@ -106,7 +130,7 @@ export default function LobbyScreen() {
           {data?.players.map((p) => (
             <View key={p._id} style={styles.row}>
               <Text style={styles.rowName}>{p.name}</Text>
-              <Text style={styles.rowMeta}>{p.paid ? 'SIGNED · $10' : 'UNSIGNED'}</Text>
+              <Text style={styles.rowMeta}>{p.paid ? 'SIGNED' : 'UNSIGNED'}</Text>
             </View>
           ))}
         </View>
@@ -114,7 +138,7 @@ export default function LobbyScreen() {
           <View style={styles.waiver}>
             <Text style={styles.waiverTitle}>THE WAIVER</Text>
             <Text style={styles.waiverText}>
-              I, {me.name}, surrender all claims to my limbs, my dignity, and my $10. The last one standing takes the pot.
+              Surrender your limbs and ${data?.room.buyIn}. Last one standing takes the pot.
             </Text>
             <Pressable style={styles.cta} disabled={paying} onPress={signWaiver}>
               {paying ? <ActivityIndicator color="#fff" /> : <Text style={styles.ctaText}>SIGN IN BLOOD · ${data?.room.buyIn}</Text>}
@@ -136,7 +160,7 @@ export default function LobbyScreen() {
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <SafeAreaView style={styles.screen}>
         <Text style={styles.logo}>MEAT{'\n'}<Text style={styles.logoRed}>MARKET</Text></Text>
-        <TextInput style={styles.input} placeholder="Your name" placeholderTextColor="#6b5f52" value={name} onChangeText={setName} returnKeyType="done" />
+        <TextInput style={styles.input} placeholder="NAME" placeholderTextColor="#6b5f52" value={name} onChangeText={setName} returnKeyType="done" />
         <Pressable style={styles.cta} disabled={!name} onPress={() => run(() => create({ name }))}>
           <Text style={styles.ctaText}>START A BATCH</Text>
         </Pressable>
@@ -156,6 +180,10 @@ export default function LobbyScreen() {
           </Pressable>
         </View>
         {error && <Text style={styles.error}>{error}</Text>}
+        <Pressable style={[styles.cta, styles.solo]} onPress={() => router.push({ pathname: '/play/[game]', params: { game: 'dinner', name } })}>
+          <Text style={styles.ctaText}>PRACTICE</Text>
+          <Text style={styles.soloSub}>NO BUY-IN</Text>
+        </Pressable>
       </SafeAreaView>
     </TouchableWithoutFeedback>
   );
@@ -167,6 +195,8 @@ const styles = StyleSheet.create({
   logoRed: { color: '#ff4a3a' },
   input: { borderWidth: 1, borderColor: '#3a322b', borderRadius: 12, padding: 16, color: '#e9dcc3', fontSize: 18 },
   cta: { backgroundColor: '#a50f0c', borderRadius: 12, padding: 18, alignItems: 'center' },
+  solo: { marginTop: 18, backgroundColor: '#140c0a', borderWidth: 1, borderColor: '#a50f0c' },
+  soloSub: { color: '#a3967f', fontSize: 11, letterSpacing: 2, marginTop: 4 },
   ghost: { backgroundColor: '#1a1512', borderWidth: 1, borderColor: '#5a4d40', paddingHorizontal: 28 },
   ctaText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 2 },
   joinRow: { flexDirection: 'row', gap: 10 },
