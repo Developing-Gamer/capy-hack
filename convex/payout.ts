@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, mutation, MutationCtx, query } from "./_generated/server";
-import { whop } from "./whop";
+import { environment, whop } from "./whop";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -64,7 +64,7 @@ export const forSend = internalQuery({
 export const record = internalMutation({
   args: {
     payoutId: v.id("payouts"),
-    status: v.union(v.literal("processing"), v.literal("paid"), v.literal("owed")),
+    status: v.union(v.literal("processing"), v.literal("paid"), v.literal("simulated"), v.literal("owed")),
     whopUserId: v.optional(v.string()),
     transferId: v.optional(v.string()),
     reason: v.optional(v.string()),
@@ -74,7 +74,9 @@ export const record = internalMutation({
   },
 });
 
-const outcome = (t: Transfer) => (t.status === "succeeded" ? "paid" : t.status === "failed" ? "owed" : "processing");
+/** The sandbox can't pay out, so a refused sandbox transfer is recorded as simulated, with Whop's answer kept in reason. */
+const refused = () => (environment() === "sandbox" ? "simulated" : "owed");
+const outcome = (t: Transfer) => (t.status === "succeeded" ? "paid" : t.status === "failed" ? refused() : "processing");
 
 /** Moves the pot from the company balance to the winner's Whop user, found through their buy-in payment. */
 export const send = internalAction({
@@ -117,7 +119,7 @@ export const send = internalAction({
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
       console.error("Whop payout failed", reason);
-      await ctx.runMutation(internal.payout.record, { payoutId, status: "owed", whopUserId, reason });
+      await ctx.runMutation(internal.payout.record, { payoutId, status: refused(), whopUserId, reason });
     }
     return null;
   },

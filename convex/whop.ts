@@ -5,7 +5,7 @@ const API = {
   production: "https://api.whop.com/api/v1",
 };
 
-const environment = () => (process.env.WHOP_ENVIRONMENT === "production" ? "production" : "sandbox");
+export const environment = () => (process.env.WHOP_ENVIRONMENT === "production" ? "production" : "sandbox");
 
 export async function whop(path: string, init?: RequestInit & { headers?: Record<string, string> }) {
   const env = environment();

@@ -24,7 +24,7 @@ export default defineSchema({
     winnerId: v.id("players"),
     amount: v.number(),
     currency: v.string(),
-    status: v.union(v.literal("sending"), v.literal("processing"), v.literal("paid"), v.literal("owed")),
+    status: v.union(v.literal("sending"), v.literal("processing"), v.literal("paid"), v.literal("simulated"), v.literal("owed")),
     whopUserId: v.optional(v.string()),
     transferId: v.optional(v.string()),
     reason: v.optional(v.string()),
