@@ -42,6 +42,8 @@ export interface Placement {
   place: number;
   status: 'survived' | 'dead';
   score: number;
+  /** Limbs the subject still has at the end, when the game can take them. */
+  limbs?: Limb[];
 }
 
 export interface DeathRecord {

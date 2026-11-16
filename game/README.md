@@ -116,6 +116,8 @@ lets a careful bot play for you. No engine changes.
 
 ### Shared-layer additions (all optional, existing games unaffected)
 
+- `sound.raw` exposes the WebAudio context, buses, reverb send and noise buffer for game-specific
+  synthesis; `Placement.limbs` optionally carries a subject's remaining limbs.
 - `Surface.vel` (`gore.ts`): a conveyor velocity. Decals and resting gibs on that surface ride
   along with it and drop off its edges; mutate it as the belt changes speed.
 - `Sound.grind`, `scrape`, `grab`, `klaxon`, and a looping `motor(on)` with `motorLoad(0..1)`
