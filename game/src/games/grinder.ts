@@ -790,7 +790,7 @@ export const createGrinder: GameFactory = (ctx) => {
     const placements: Placement[] = order.map((r, i) => ({ id: r.info.id, place: i + 1, status: r.alive ? 'survived' : 'dead', score: Math.round(r.hauled * 10) / 10 }));
     const kept = (r: Runner): Limb[] =>
       (['ra', 'la', 'rl', 'll'] as const).filter((l) => r.subject.limbs[l].attached && r.subject.limbs[l].end.visible);
-    ctx.finish(placements, { limbs: Object.fromEntries(runners.filter((r) => r.alive).map((r) => [r.info.id, kept(r)])) });
+    ctx.finish(placements, Object.fromEntries(runners.filter((r) => r.alive).map((r) => [r.info.id, kept(r)])));
     console.log(
       '[round]',
       JSON.stringify({ t: simT.toFixed(1), perf: engine.perf(), taps: inputLog.length, runners: runners.map((r) => [r.info.name, r.brain?.p.kind, r.alive ? 'retained' : r.cause, r.endAt.toFixed(1), r.slips, r.bites, r.minP.toFixed(2)]) }),

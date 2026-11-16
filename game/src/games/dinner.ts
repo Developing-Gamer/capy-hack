@@ -31,11 +31,9 @@ import {
   RAISE,
   recordAct,
   ROUND,
-  deadline,
   type Seat,
   type Segment,
   STAB,
-  sabotage,
   tableFor,
 } from './dinner-rules';
 
@@ -428,12 +426,6 @@ class Host {
     return this.gun.localToWorld(out.set(0, 0.022, 0.2));
   }
 
-  /** Starts the next scan facing this point. */
-  glanceAt(p: THREE.Vector3) {
-    const yaw = Math.atan2(p.x - this.root.position.x, p.z - this.root.position.z) * 0.8;
-    this.scan = Math.asin(clamp(yaw / 0.4, -1, 1));
-  }
-
   private pointArm(arm: THREE.Group, worldTarget: THREE.Vector3, blend = 1) {
     const local = this.root.worldToLocal(worldTarget.clone()).sub(arm.position).normalize();
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), local);
@@ -503,10 +495,7 @@ export const createDinner: GameFactory = (ctx) => {
   cam.fov = 70;
 
   const players = start.players.slice(0, SEATS.length + 1);
-  const seats: Seat[] = sabotage(
-    players.map((p) => ({ id: p.id, bot: p.isBot, arm: p.limbs.includes('ra') })),
-    start.purchases,
-  );
+  const seats: Seat[] = players.map((p) => ({ id: p.id, bot: p.isBot, arm: p.limbs.includes('ra') }));
   const table = tableFor(start.seed, seats);
   const segs = table.segs;
   const online = !!ctx.net && start.startAt !== undefined;
@@ -521,7 +510,6 @@ export const createDinner: GameFactory = (ctx) => {
   }
 
   const me = players.find((p) => p.id === start.you) ?? players[0];
-  const myEnd = deadline(seats.find((x) => x.id === me.id)!);
   const others = players.filter((p) => p !== me);
   const playerFork = forkMesh(1.6);
   scene.add(playerFork.g);
@@ -613,8 +601,6 @@ export const createDinner: GameFactory = (ctx) => {
     else if (s.phase === 'rustle') sound.rustle(0.6);
     else if (s.phase === 'fold') sound.rustle(0.3, 0.4);
     else if (s.phase === 'lower') {
-      const marked = diners.find((d) => d.alive && !d.done && seats.some((x) => x.id === d.info.id && x.marked));
-      if (marked) host.glanceAt(marked.subject?.root.position ?? cam.position);
       if (s.snap) sound.snap();
       sound.sting();
       sound.intensity = 0.9;
@@ -741,7 +727,7 @@ export const createDinner: GameFactory = (ctx) => {
         lastPlate = true;
         hud.feed('<b>LAST PLATE.</b> The host does not wait.');
       }
-      if (o.cause === CAUSE.time && o.t >= ROUND && !timeUp) {
+      if (o.cause === CAUSE.time && !timeUp) {
         timeUp = true;
         hud.feed('<b>DINNER IS OVER.</b> Unfinished plates are not tolerated.');
       }
@@ -981,7 +967,7 @@ export const createDinner: GameFactory = (ctx) => {
   }
 
   function hudTick(dt: number) {
-    if (!finished) hud.setTimer(Math.max(0, myEnd - elapsed));
+    if (!finished) hud.setTimer(ROUND - elapsed);
     const watching = host.down > 0.5;
     const phase = hs.seg.phase;
     if (!begun) {
@@ -1015,7 +1001,7 @@ export const createDinner: GameFactory = (ctx) => {
   hud.setTitle('SIMULATION 01', 'DINNER PARTY');
   hud.setPot(start.pot);
   hud.setLimbs(me.limbs);
-  hud.setTimer(myEnd);
+  hud.setTimer(ROUND);
   hud.setHint('<b>HOLD</b> STAB · <b>FLICK</b> EAT');
   void hud
     .intro('SIMULATION 01', 'DINNER PARTY', ['EAT YOUR PEAS.', '<b>HOLD</b> TO STAB. <b>FLICK</b> TO EAT.', "DON'T GET CAUGHT."])

@@ -485,10 +485,6 @@ export const createChamber: GameFactory = (ctx) => {
     for (const [k, a] of Object.entries((view as { actions?: Record<string, Action> }).actions ?? {})) decided.set(Number(k), a);
   });
   const seated = start.players.some((p) => p.id === start.you);
-  const purchases = start.purchases ?? [];
-  const on = (offer: string, id: string) => purchases.filter((p) => p.offer === offer && p.victim === id).length;
-  /** One More Round still owed to each victim's next turn. */
-  const owed = new Map(table.map((p) => [p.id, on('one_more_round', p.id)]));
 
   const numbers = new Set<number>();
   const numberFor = () => {
@@ -628,9 +624,6 @@ export const createChamber: GameFactory = (ctx) => {
   const risk = () => bulletsLeft() / (CHAMBERS - idx);
   const yawTo = (s: Seat) => Math.atan2(s.pos.x, s.pos.z);
   const duel = () => aliveSeats().length === 2;
-  /** Seconds a human holder gets; Short Fuse takes 3 s off per purchase. */
-  const limit = (s: Seat) => Math.max(2, DECIDE - 3 * on('short_fuse', s.info.id));
-
   /** Asks the server to record this turn's choice; it comes back through `decided`. */
   function propose(a: Action) {
     if (!net || proposed.has(turnNo)) return;
@@ -721,17 +714,6 @@ export const createChamber: GameFactory = (ctx) => {
     action = null;
     target = -1;
     const s = seats[i];
-    const extra = owed.get(s.info.id) ?? 0;
-    if (extra > 0) {
-      owed.set(s.info.id, extra - 1);
-      const empty = chambers.map((c, k) => (!c && k >= idx ? k : -1)).filter((k) => k >= 0);
-      if (empty.length > 1) {
-        chambers[empty[rng.int(0, empty.length - 1)]] = true;
-        bullets++;
-        big('+1 ROUND', 'info');
-        sound.sting();
-      }
-    }
     if (s.kind) {
       planned = decide(s);
       ponder = rng.range(...PERSONALITIES[s.kind].ponder) * (0.7 + risk());
@@ -1056,11 +1038,11 @@ export const createChamber: GameFactory = (ctx) => {
       if (s.kind) {
         if (pt >= ponder) act(planned);
       } else if (!net) {
-        if (pt >= limit(s)) act('pull');
+        if (pt >= DECIDE) act('pull');
       } else if (decided.has(turnNo)) {
         act(decided.get(turnNo)!);
         if (!action) act('pull');
-      } else if (seated && you.alive && pt >= limit(s) + (s.you ? 0 : 6)) propose('pull');
+      } else if (seated && you.alive && pt >= DECIDE + (s.you ? 0 : 6)) propose('pull');
     } else if (phase === 'pass') {
       if (pt >= dur) startTurn(nextHolder, seats[holder]);
     } else if (phase === 'aim') {
@@ -1255,9 +1237,8 @@ export const createChamber: GameFactory = (ctx) => {
       turnBtn.innerHTML = `TURN IT<small>${TURN_COST}c · ${nameOf(next)}</small>`;
       if (you.alive && phase !== 'finale' && phase !== 'over') panel.className = `lc-panel ${mine ? '' : 'wait'}`;
     }
-    const lim = limit(h);
-    clockBar.style.width = phase === 'decide' ? `${clamp(1 - pt / lim, 0, 1) * 100}%` : '100%';
-    if (!finished) hud.setTimer(phase === 'decide' ? Math.max(0, lim - pt) : lim);
+    clockBar.style.width = phase === 'decide' ? `${clamp(1 - pt / DECIDE, 0, 1) * 100}%` : '100%';
+    if (!finished) hud.setTimer(phase === 'decide' ? DECIDE - pt : DECIDE);
 
     if (!you.alive || phase === 'intro' || phase === 'death' || phase === 'finale' || phase === 'over') hud.setStatus('', 'hidden');
     else if (phase === 'load') hud.setStatus(duel() ? 'FINAL CHAMBER' : '', duel() ? 'warn' : 'hidden');
@@ -1301,8 +1282,6 @@ export const createChamber: GameFactory = (ctx) => {
   hud.setLimbs(me.limbs);
   hud.setTimer(DECIDE);
   queued = seatOf(rng.int(0, table.length - 1));
-  const marked = seats.find((s) => on('marked', s.info.id) > 0);
-  if (marked) queued = marked.index;
   gunYaw = yawTo(seats[queued]) + 2.1;
   void hud
     .intro('FINAL SIMULATION', 'LAST CHAMBER', ['<b>PULL</b>. SURVIVE. GET PAID.', '<b>PASS</b> IT ON, OR <b>TURN IT</b> ON THEM. LAST ONE SEATED TAKES THE POT.'])

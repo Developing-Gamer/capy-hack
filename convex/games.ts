@@ -1,11 +1,8 @@
 import { Infer } from "convex/values";
-import { type Act, advance, type Fork, newReferee, placements, recordAct, type Referee, sabotage, viewOf } from "../game/src/games/dinner-rules";
-import type { OfferId } from "../game/src/shared/protocol";
-import { purchase, seat } from "./schema";
+import { type Act, advance, type Fork, newReferee, placements, recordAct, type Referee, viewOf } from "../game/src/games/dinner-rules";
+import { seat } from "./schema";
 
 export type SeatInfo = Infer<typeof seat>;
-export type Purchase = Infer<typeof purchase>;
-const OFFERS: OfferId[] = ["short_fuse", "marked", "one_more_round", "limb_swap"];
 
 export interface SeatResult {
   id: string;
@@ -23,11 +20,9 @@ export interface ServerGame {
   seats: number;
   /** True when every phone plays one shared round; false when each phone plays its own copy. */
   shared: boolean;
-  /** Sabotage this game applies itself (Limb Swap is applied by the runner before any trial). */
-  applies: OfferId[];
   /** How often tick runs while the round is live. */
   tickMs: number;
-  init(seed: number, seats: SeatInfo[], purchases: Purchase[]): unknown;
+  init(seed: number, seats: SeatInfo[]): unknown;
   act(state: unknown, playerId: string, data: unknown, t: number): void;
   tick(state: unknown, t: number): void;
   over(state: unknown): boolean;
@@ -35,8 +30,6 @@ export interface ServerGame {
   view(state: unknown): unknown;
   /** Every seat's fate, best placed first. */
   results(state: unknown): SeatResult[];
-  /** Sabotage bought during the round, for the next trial. */
-  purchases?(state: unknown): Purchase[];
 }
 
 /** Server time is the authority, but a phone's fork move is judged when it happened, up to this late. */
@@ -47,16 +40,8 @@ const FORKS: Fork[] = ["idle", "stab", "raise", "chew", "lower", "drop"];
 const dinner: ServerGame = {
   seats: 4,
   shared: true,
-  applies: ["marked", "short_fuse"],
   tickMs: 250,
-  init: (seed, seats, purchases) =>
-    newReferee(
-      seed,
-      sabotage(
-        seats.map((s) => ({ id: s.id, bot: s.bot, arm: s.limbs.includes("ra") })),
-        purchases,
-      ),
-    ),
+  init: (seed, seats) => newReferee(seed, seats.map((s) => ({ id: s.id, bot: s.bot, arm: s.limbs.includes("ra") }))),
   act(state, playerId, data, t) {
     const d = data as Partial<Act> & { kind?: string };
     if (d?.kind !== "act" || !FORKS.includes(d.fork as Fork)) return;
@@ -77,43 +62,26 @@ const dinner: ServerGame = {
 
 interface SelfReport {
   humans: string[];
-  bots: string[];
   reports: Record<string, SeatResult>;
-  bought: Purchase[];
   deadline: number;
 }
 
-const isPurchase = (p: unknown): p is Purchase => {
-  const x = p as Purchase;
-  return !!x && typeof x.buyer === "string" && typeof x.victim === "string" && OFFERS.includes(x.offer);
-};
-
 /**
  * Any other game: every phone plays its own copy against bots and reports its own subject's fate
- * through the standard `result` message. The round ends when every human has reported. Each
- * phone's own purchases count; the bots' come from the first human's phone.
+ * through the standard `result` message. The round ends when every human has reported.
  */
 export function selfReported(seats = 4, deadline = 240): ServerGame {
   return {
     seats,
     shared: false,
-    applies: [],
     tickMs: 1000,
-    init: (_seed, seats): SelfReport => ({
-      humans: seats.filter((s) => !s.bot).map((s) => s.id),
-      bots: seats.filter((s) => s.bot).map((s) => s.id),
-      reports: {},
-      bought: [],
-      deadline,
-    }),
+    init: (_seed, seats): SelfReport => ({ humans: seats.filter((s) => !s.bot).map((s) => s.id), reports: {}, deadline }),
     act(state, playerId, data) {
       const s = state as SelfReport;
-      const d = data as { kind?: string; placements?: { id: string; status: string; limbs?: string[] }[]; limbs?: Record<string, string[]>; purchases?: unknown[] };
+      const d = data as { kind?: string; placements?: { id: string; status: string }[]; limbs?: Record<string, string[]> };
       if (d?.kind !== "result" || !s.humans.includes(playerId) || s.reports[playerId]) return;
       const mine = d.placements?.find((p) => p.id === playerId);
-      const kept = d.limbs?.[playerId] ?? mine?.limbs;
-      const counts = (p: Purchase) => p.buyer === playerId || (playerId === s.humans[0] && s.bots.includes(p.buyer));
-      for (const p of (d.purchases ?? []).filter(isPurchase).filter(counts)) s.bought.push({ buyer: p.buyer, offer: p.offer, victim: p.victim });
+      const kept = d.limbs?.[playerId];
       const lost = kept ? ["ra", "la", "rl", "ll"].filter((l) => !kept.includes(l)) : [];
       s.reports[playerId] = { id: playerId, dead: mine?.status === "dead", lost };
     },
@@ -128,7 +96,6 @@ export function selfReported(seats = 4, deadline = 240): ServerGame {
     },
     view: (state) => ({ reported: Object.keys((state as SelfReport).reports) }),
     results: (state) => Object.values((state as SelfReport).reports).sort((a, b) => Number(a.dead) - Number(b.dead)),
-    purchases: (state) => (state as SelfReport).bought,
   };
 }
 
@@ -151,7 +118,6 @@ interface Lockstep {
 const chamber: ServerGame = {
   seats: 4,
   shared: true,
-  applies: ["one_more_round", "marked", "short_fuse"],
   tickMs: 1000,
   init: (_seed, seats): Lockstep => ({ humans: seats.filter((s) => !s.bot).map((s) => s.id), actions: {}, reported: [], placements: null, deadline: 900 }),
   act(state, playerId, data) {
@@ -171,17 +137,17 @@ const chamber: ServerGame = {
   results: (state) => {
     const s = state as Lockstep;
     const order = s.placements ?? [];
-    const rank = (id: string) => (order.findIndex((p) => p.id === id) + order.length + 1) % (order.length + 1);
-    return [...s.humans]
-      .sort((a, b) => rank(a) - rank(b))
-      .map((id) => ({ id, dead: order.find((p) => p.id === id)?.status === "dead", lost: [] }));
+    const rank = (id: string) => {
+      const i = order.findIndex((p) => p.id === id);
+      return i < 0 ? order.length : i;
+    };
+    return [...s.humans].sort((a, b) => rank(a) - rank(b)).map((id) => ({ id, dead: order.find((p) => p.id === id)?.status === "dead", lost: [] }));
   },
 };
 
 /** Server adapters by game key (the `game` field of the start message). */
 export const GAMES: Record<string, ServerGame> = {
   dinner,
-  machine: selfReported(4, 240),
   grinder: selfReported(),
   chamber,
 };

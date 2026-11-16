@@ -77,11 +77,6 @@ class Sound {
     return this.ctx!.currentTime;
   }
 
-  /** Raw graph access for game-specific synthesis (context, buses, reverb send, 2 s noise). Null until unlocked. */
-  get raw(): { ctx: AudioContext; sfx: AudioNode; music: AudioNode; verb: AudioNode; noise: AudioBuffer } | null {
-    return this.ctx ? { ctx: this.ctx, sfx: this.sfxBus, music: this.musicBus, verb: this.verb, noise: this.noise } : null;
-  }
-
   private env(g: GainNode, t: number, peak: number, attack: number, decay: number) {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + attack);

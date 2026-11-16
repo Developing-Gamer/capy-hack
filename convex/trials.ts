@@ -2,10 +2,10 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx, query } from "./_generated/server";
-import { GAMES, type Purchase, type SeatInfo } from "./games";
+import { GAMES, type SeatInfo } from "./games";
 
 /** The run, in order. Keys are game keys; "payout" ends the run. */
-export const TRIALS = ["dinner", "machine", "grinder", "machine", "chamber", "payout"];
+export const TRIALS = ["dinner", "smoke", "grinder", "chamber", "payout"];
 /** Time between the host pressing start (or the previous trial ending) and round time 0. */
 const LEAD_MS = 5000;
 /** How long everyone looks at the assessment card before the next trial loads. */
@@ -31,29 +31,12 @@ const playable = (index: number) => {
   return Math.min(i, TRIALS.length - 1);
 };
 
-/** Limb Swap between two living subjects: they trade what they have left. Returns false if it can't apply. */
-async function swapLimbs(ctx: MutationCtx, players: Doc<"players">[], p: Purchase) {
-  const a = players.find((x) => x._id === p.buyer && alive(x));
-  const b = players.find((x) => x._id === p.victim && alive(x));
-  if (!a || !b || a === b) return false;
-  [a.lost, b.lost] = [b.lost ?? [], a.lost ?? []];
-  for (const x of [a, b]) await ctx.db.patch(x._id, { lost: x.lost, limbs: ALL_LIMBS.length - (x.lost ?? []).length });
-  return true;
-}
-
-/**
- * Starts trial `i` with the room's living subjects, bots filling the empty seats. Sabotage bought
- * in the previous trial is applied here: Limb Swap by the runner, the rest by the game if it can.
- */
+/** Starts trial `i` with the room's living subjects, bots filling the empty seats. */
 export async function startTrial(ctx: MutationCtx, roomId: Id<"rooms">, i: number) {
-  const room = await ctx.db.get(roomId);
-  const prev = room?.matchId ? await ctx.db.get(room.matchId) : null;
   const players = await ctx.db.query("players").withIndex("by_room", (q) => q.eq("roomId", roomId)).collect();
+  const living = players.filter(alive);
   const game = TRIALS[i];
   const server = GAMES[game];
-  const voided: Purchase[] = [];
-  for (const p of prev?.bought ?? []) if (p.offer === "limb_swap" && !(await swapLimbs(ctx, players, p))) voided.push(p);
-  const living = players.filter(alive);
   const seed = Math.floor(Math.random() * 2 ** 31);
   const seats: SeatInfo[] = living.slice(0, server.seats).map((p) => ({
     id: p._id,
@@ -63,10 +46,6 @@ export async function startTrial(ctx: MutationCtx, roomId: Id<"rooms">, i: numbe
     bot: false,
   }));
   BOTS.slice(0, server.seats - seats.length).forEach((b, n) => seats.push({ id: `bot-${n + 1}`, name: b.name, hat: b.hat, limbs: ALL_LIMBS, bot: true }));
-  const seated = (p: Purchase) => seats.some((s) => s.id === p.victim);
-  const purchases = (prev?.bought ?? []).filter((p) => p.offer !== "limb_swap" && seated(p));
-  for (const p of purchases.filter((p) => !server.applies.includes(p.offer))) voided.push(p);
-  const applied = purchases.filter((p) => server.applies.includes(p.offer));
   const matchId = await ctx.db.insert("matches", {
     roomId,
     game,
@@ -74,10 +53,8 @@ export async function startTrial(ctx: MutationCtx, roomId: Id<"rooms">, i: numbe
     seed,
     startAt: Date.now() + LEAD_MS,
     seats,
-    state: server.init(seed, seats, applied),
+    state: server.init(seed, seats),
     over: false,
-    purchases: applied,
-    voided: voided.filter(seated),
   });
   await ctx.db.patch(roomId, { status: "playing", trial: i, matchId, seed });
   await ctx.scheduler.runAfter(LEAD_MS, internal.trials.tick, { matchId });
@@ -97,7 +74,7 @@ export const tick = internalMutation({
       return null;
     }
     const results = server.results(match.state).filter((r) => match.seats.some((s) => s.id === r.id && !s.bot));
-    await ctx.db.patch(matchId, { state: match.state, over: true, results, bought: server.purchases?.(match.state) ?? [] });
+    await ctx.db.patch(matchId, { state: match.state, over: true, results });
     for (const r of results) {
       const player = await ctx.db.get(r.id as Id<"players">);
       if (!player) continue;
@@ -166,8 +143,6 @@ export const watch = query({
       startAt: match.startAt,
       seats: match.seats,
       shared: GAMES[match.game].shared,
-      purchases: match.purchases ?? [],
-      voided: match.voided ?? [],
       over: match.over,
       results: match.results ?? null,
       view: GAMES[match.game].view(match.state),

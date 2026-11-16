@@ -9,13 +9,6 @@ export const seat = v.object({
   bot: v.boolean(),
 });
 
-/** Sabotage bought at The Machine (see game/src/shared/protocol.ts). */
-export const purchase = v.object({
-  buyer: v.string(),
-  offer: v.union(v.literal("short_fuse"), v.literal("marked"), v.literal("one_more_round"), v.literal("limb_swap")),
-  victim: v.string(),
-});
-
 export default defineSchema({
   rooms: defineTable({
     code: v.string(),
@@ -55,12 +48,6 @@ export default defineSchema({
     over: v.boolean(),
     /** Each human's fate once the trial is over. */
     results: v.optional(v.array(v.object({ id: v.string(), dead: v.boolean(), lost: v.array(v.string()) }))),
-    /** Sabotage this trial applies (from the last Machine). */
-    purchases: v.optional(v.array(purchase)),
-    /** Sabotage aimed at this trial that it can't apply; each victim is told. */
-    voided: v.optional(v.array(purchase)),
-    /** Sabotage bought in this trial, for the next one. */
-    bought: v.optional(v.array(purchase)),
   }).index("by_room", ["roomId"]),
   payouts: defineTable({
     roomId: v.id("rooms"),

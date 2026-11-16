@@ -37,8 +37,7 @@ Types live in `src/shared/protocol.ts`, imported by both sides.
 
 ## Online trials
 
-`convex/trials.ts` runs a room through `TRIALS` (dinner → machine → grinder → machine → chamber
-→ payout). Each trial is a `matches` row with a seed, a server `startAt`, the seats (living
+`convex/trials.ts` runs a room through `TRIALS` (dinner → smoke → grinder → chamber → payout). Each trial is a `matches` row with a seed, a server `startAt`, the seats (living
 humans, then bots up to the game's table size, with the limbs they still have) and the adapter's
 state. The app's `/trials` screen follows `room.matchId` on every phone and remounts the WebView
 for each trial. When a trial ends, the runner kills and maims players for real (`players.alive`,
@@ -46,14 +45,19 @@ for each trial. When a trial ends, the runner kills and maims players for real (
 `payout.settle` once one subject is left.
 
 Server adapters live in `convex/games.ts` (`GAMES`). A game without one is skipped until it is
-added. Two kinds exist:
+added. Three kinds exist:
 
 - **Refereed** (Dinner Party): the server runs the same pure rules module as the page
   (`src/games/dinner-rules.ts`), decides every death and sends one view to all phones.
 - **Self-reported** (`selfReported()`): every phone plays its own copy against bots and the app
   forwards its `result` (plus an optional `limbs: { [id]: Limb[] }` of what each subject kept);
   the trial ends when every human has reported. The Grinder runs this way (`grinder:
-  selfReported()`).
+  selfReported()`); other humans are played by bots on each phone.
+- **Lockstep** (Last Chamber): every phone runs the same seeded table, and the server only orders
+  the humans' choices. The holder's phone sends `net` `{ kind: 'act', turn, action }`, the first
+  proposal per turn wins, and every phone applies `view.actions[turn]` when it reaches that turn.
+  If a holder's choice hasn't arrived 6 s after their clock runs out, another living human's phone
+  proposes a pull for them. The first `result` decides the placements.
 
 The page only accepts one `start`; to replay, remount the WebView (the play screen bumps its
 `key`).
@@ -96,27 +100,7 @@ The page only accepts one `start`; to replay, remount the WebView (the play scre
 5. `npm run game:build`, commit `src/game/html.ts`, and open it from the app with
    `router.push({ pathname: '/play/[game]', params: { game: '<name>' } })`.
 
-## The Machine (`src/games/machine.ts`)
 
-The intermission shop. Each subject picks an offer and a victim, then holds a hand in a toothed
-payment slot to feed coins (one every 1.5 s). When the CRT eye goes amber then red every slot bites:
-the first bite takes the arm, the second gets the subject crushed by the press overhead. Stock is
-one short of the batch, so the last subject still shopping is "stocked"; anyone unpaid at 1:00 is
-collected. Desktop: `?game=machine`, keys 1-4 pick an offer, 5-7 a victim, B forces a bite.
-
-Hand-off to later trials (types in `src/shared/protocol.ts`):
-
-- `result.purchases`: `[{ buyer, offer, victim }]`, player ids plus an `OfferId`
-  (`short_fuse` -3 s on the victim's next timer, `marked` the next antagonist watches them first,
-  `one_more_round` an extra bullet in their next chamber pull, `limb_swap` buyer and victim trade
-  limb sets). Purchases are secret: only the buyer's own phone shows what it bought.
-- `result.placements[].limbs`: limbs left after the shop (bites remove arms).
-- The app forwards both into the next `start`: `players[].limbs` and `start.purchases`. A trial
-  applies the purchases it understands and ignores the rest, and skips victims who are dead.
-- `players[].coins` is optional (defaults to 12).
-
-Shared-engine additions (backward compatible): `sound.raw` exposes the WebAudio context, buses,
-reverb send and noise buffer for game-specific synthesis.
 
 ### Shared-layer additions (all optional, existing games unaffected)
 
@@ -125,15 +109,13 @@ reverb send and noise buffer for game-specific synthesis.
 - `Sound.grind`, `scrape`, `grab`, `klaxon`, and a looping `motor(on)` with `motorLoad(0..1)`
   (`audio.ts`).
 - `BoardRow.label` (`hud.ts`) overrides the right-hand value text of a scoreboard row.
-- `ctx.finish(placements, { limbs?, purchases? })` (`game.ts`): pass the limbs each survivor kept
-  and `result` carries them as `limbs`, so the trial runner maims players for real; The Machine
-  passes `purchases` the same way. The Grinder reports a leg
+- `ctx.finish(placements, limbs?)` (`game.ts`): pass the limbs each survivor kept and `result`
+  carries them as `limbs`, so the trial runner maims players for real. The Grinder reports a leg
   whose foot went into the teeth as lost.
 
 ## Games
 
 - `dinner` (`src/games/dinner.ts`): Dinner Party. Eat while the host reads; he shoots movers.
-- `machine` (`src/games/machine.ts`): The Machine, the sabotage shop between trials (above).
 - `chamber` (`src/games/chamber.ts`): Last Chamber, Russian roulette for the pot (below).
 - `grinder` (`src/games/grinder.ts`): The Grinder. Alternate left / right taps to haul back along
   the rails of a conveyor that feeds a meat grinder feet first; the same hand twice slips. The
