@@ -165,7 +165,7 @@ export const watch = query({
       seed: match.seed,
       startAt: match.startAt,
       seats: match.seats,
-      refereed: GAMES[match.game].refereed,
+      shared: GAMES[match.game].shared,
       purchases: match.purchases ?? [],
       voided: match.voided ?? [],
       over: match.over,

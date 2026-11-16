@@ -21,8 +21,8 @@ export interface SeatResult {
 export interface ServerGame {
   /** Seats at the table; bots fill whatever the humans leave empty. */
   seats: number;
-  /** True when the server referees one shared round; false when each phone plays its own copy. */
-  refereed: boolean;
+  /** True when every phone plays one shared round; false when each phone plays its own copy. */
+  shared: boolean;
   /** Sabotage this game applies itself (Limb Swap is applied by the runner before any trial). */
   applies: OfferId[];
   /** How often tick runs while the round is live. */
@@ -46,7 +46,7 @@ const FORKS: Fork[] = ["idle", "stab", "raise", "chew", "lower", "drop"];
 /** Dinner Party: the server referees with the same rules module the WebView runs. */
 const dinner: ServerGame = {
   seats: 4,
-  refereed: true,
+  shared: true,
   applies: ["marked", "short_fuse"],
   tickMs: 250,
   init: (seed, seats, purchases) =>
@@ -96,7 +96,7 @@ const isPurchase = (p: unknown): p is Purchase => {
 export function selfReported(seats = 4, deadline = 240): ServerGame {
   return {
     seats,
-    refereed: false,
+    shared: false,
     applies: [],
     tickMs: 1000,
     init: (_seed, seats): SelfReport => ({
@@ -132,8 +132,55 @@ export function selfReported(seats = 4, deadline = 240): ServerGame {
   };
 }
 
+const CHAMBER_ACTIONS = ["pull", "pass", "turn"];
+
+interface Lockstep {
+  humans: string[];
+  /** Each human choice by turn number; the first proposal for a turn wins. */
+  actions: Record<string, string>;
+  reported: string[];
+  placements: { id: string; status: string }[] | null;
+  deadline: number;
+}
+
+/**
+ * Last Chamber: every phone runs the same seeded table and the server only orders the humans'
+ * choices (`{ kind: "act", turn, action }`). Every phone reaches the same ending, so the first
+ * `result` decides the placements; the round ends when every human has reported.
+ */
+const chamber: ServerGame = {
+  seats: 4,
+  shared: true,
+  applies: ["one_more_round", "marked", "short_fuse"],
+  tickMs: 1000,
+  init: (_seed, seats): Lockstep => ({ humans: seats.filter((s) => !s.bot).map((s) => s.id), actions: {}, reported: [], placements: null, deadline: 900 }),
+  act(state, playerId, data) {
+    const s = state as Lockstep;
+    const d = data as { kind?: string; turn?: unknown; action?: unknown; placements?: { id: string; status: string }[] };
+    if (d?.kind === "act" && Number.isInteger(d.turn) && CHAMBER_ACTIONS.includes(d.action as string)) s.actions[String(d.turn)] ??= d.action as string;
+    if (d?.kind !== "result" || s.reported.includes(playerId)) return;
+    s.reported.push(playerId);
+    s.placements ??= (d.placements ?? []).map((p) => ({ id: String(p.id), status: String(p.status) }));
+  },
+  tick(state, t) {
+    const s = state as Lockstep;
+    if (t >= s.deadline) s.reported = [...s.humans];
+  },
+  over: (state) => (state as Lockstep).humans.every((id) => (state as Lockstep).reported.includes(id)),
+  view: (state) => ({ actions: (state as Lockstep).actions }),
+  results: (state) => {
+    const s = state as Lockstep;
+    const order = s.placements ?? [];
+    const rank = (id: string) => (order.findIndex((p) => p.id === id) + order.length + 1) % (order.length + 1);
+    return [...s.humans]
+      .sort((a, b) => rank(a) - rank(b))
+      .map((id) => ({ id, dead: order.find((p) => p.id === id)?.status === "dead", lost: [] }));
+  },
+};
+
 /** Server adapters by game key (the `game` field of the start message). */
 export const GAMES: Record<string, ServerGame> = {
   dinner,
   machine: selfReported(4, 240),
+  chamber,
 };

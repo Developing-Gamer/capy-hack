@@ -67,7 +67,7 @@ export default function TrialsScreen() {
       pot: room.room.pot,
       startAt: match.startAt - offset,
       // In a game each phone plays alone, the other humans are played by bots on this phone.
-      players: match.seats.map((s) => ({ id: s.id, name: s.name, hat: s.hat as Hat, limbs: s.limbs as Limb[], isBot: s.bot || (!match.refereed && s.id !== playerId) })),
+      players: match.seats.map((s) => ({ id: s.id, name: s.name, hat: s.hat as Hat, limbs: s.limbs as Limb[], isBot: s.bot || (!match.shared && s.id !== playerId) })),
       purchases: match.purchases,
     };
     // A new match is the only thing that should restart the WebView.

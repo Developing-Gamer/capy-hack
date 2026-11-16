@@ -14,7 +14,10 @@ whenever you change anything under `game/`.
 
 Dev URL params (desktop only, outside the WebView): `?game=dinner` picks the game,
 `?seed=7` fixes the seed, `?auto` lets a bot play for you, `?speed=4` runs 4 sim steps per
-frame, `?nohud` hides the HUD for clean captures, `?debug` logs fps.
+frame, `?nohud` hides the HUD for clean captures, `?debug` logs fps. In Dinner Party,
+keys 1-3 / Z-C / V-N make the host shoot bot 1-3 (head / arm then head / gut then head) and
+Y shoots you. In Last Chamber (`?game=chamber`), Space / P / T pull, pass and turn it on your turn,
+and K makes the next trigger pull a live round.
 
 ## Bridge
 
@@ -61,8 +64,8 @@ The page only accepts one `start`; to replay, remount the WebView (the play scre
 | `gore.ts` | `Gore`: blood particles that leave persistent decals on the `Surface`s and `Wall`s you give it, bouncing gibs, pulsing `stump`s, `explodeHead`, `gutSpill` (verlet intestines), `pool`, `muzzleFlash`, `throwObject`. Particles passing the camera splat the lens on their own. Call `update(dt)` every frame. |
 | `rig.ts` | `Subject`: low-poly test subject in a numbered jumpsuit with a hat, seated or standing. Drive it with `eat`, `stab`, `chew`, `freeze`, `relaxed`, `lookAt`, `flinch()`, `die()`; gore via `explodeHead`, `severLimb`, `gutSpill`. `hand()` is the attach point for props. |
 | `textures.ts` | Procedural low-res canvas textures: concrete, floor, rust, metal, wood, cloth, hazard, numbered jumpsuit, newspaper, blood splats. |
-| `audio.ts` | `sound`: procedural WebAudio drone, mechanical beat (`intensity`), gunshot, squelch, crunch, splat, rustle, snap, clink, chew, sting, ring, `muffle`. Unlocks on first touch. |
-| `hud.ts` | `Hud`: timer, pot, limbs, status line, scoreboard, feed, stamp, rules card (`intro`), clinical `assessment` card. |
+| `audio.ts` | `sound`: procedural WebAudio drone, mechanical beat (`intensity`, `bpm`), gunshot, squelch, crunch, splat, rustle, snap, clink, chew, sting, ring, `muffle`, and the revolver set: `spin`, `insert`, `cock`, `click`, `slide`, `coins`, `heartbeat`. Unlocks on first touch. |
+| `hud.ts` | `Hud`: timer, pot, limbs, status line, scoreboard (a row's optional `label` replaces its `value/max` text), feed, stamp, rules card (`intro`), clinical `assessment` card. |
 | `input.ts` | `TouchPad`: full-screen one-thumb hold / flick-up / flick-down, with Space / W / S on desktop. |
 | `game.ts` | `GameContext` and `GameFactory`. |
 | `util.ts` | Seeded `Rng` (use it for anything gameplay; `rand` is for cosmetics), `clamp`, `lerp`, `damp`, `smooth`. |
@@ -117,3 +120,9 @@ spreads `extra` (`purchases`) into the `result` message.
 `src/games/dinner.ts` is the reference: room building, a scripted antagonist, bots, an execution
 queue with slow-mo kills, and the round result. Its rules live in `src/games/dinner-rules.ts`, which
 has no three.js and is imported by the Convex server too.
+
+`src/games/chamber.ts` (Last Chamber) is turn-based: it fills empty seats with bots up to four,
+draws from `ctx.rng` only when loading the cylinder and when a bot's turn starts, and applies every
+choice through one `act(action)` call, so the round replays from the seed plus the ordered human
+actions. Online, other humans' choices arrive from the server keyed by turn number (see Online trials);
+without a server, other humans are played by a bot brain.

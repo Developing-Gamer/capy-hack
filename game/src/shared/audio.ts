@@ -221,6 +221,75 @@ class Sound {
     this.osc('sawtooth', 55, 52, t, 1.1, 0.22, 0.8);
   }
 
+  /** Revolver cylinder spun by hand: a ratchet that slows to a stop over about `dur` seconds, then locks. */
+  spin(dur = 1.3) {
+    if (!this.ctx) return;
+    const t0 = this.t;
+    let tt = t0;
+    let gap = 0.018;
+    while (tt < t0 + dur) {
+      this.burst(tt, 0.012, 'bandpass', rand(3000, 4200), 0.32, 3);
+      this.osc('square', 2100, 1800, tt, 0.008, 0.025);
+      tt += gap;
+      gap *= 1.075;
+    }
+    this.burst(tt, 0.04, 'bandpass', 2200, 0.9, 2, 0.3);
+    this.osc('square', 380, 260, tt, 0.05, 0.12);
+  }
+
+  /** A brass round pushed into a chamber. */
+  insert() {
+    if (!this.ctx) return;
+    const t = this.t;
+    this.osc('sine', 3300, 3200, t, 0.12, 0.08, 0.2);
+    this.burst(t, 0.03, 'bandpass', 1800, 0.5, 3, 0.2);
+    this.burst(t + 0.05, 0.02, 'bandpass', 2600, 0.6, 4);
+  }
+
+  /** Hammer cocked back: a two-stage metallic clack. */
+  cock() {
+    if (!this.ctx) return;
+    const t = this.t;
+    this.burst(t, 0.02, 'bandpass', 2900, 0.6, 3, 0.2);
+    this.burst(t + 0.12, 0.035, 'bandpass', 1900, 1.1, 3, 0.4);
+    this.osc('square', 460, 280, t + 0.12, 0.05, 0.14);
+  }
+
+  /** Dry fire on an empty chamber. */
+  click() {
+    if (!this.ctx) return;
+    const t = this.t;
+    this.burst(t, 0.025, 'highpass', 2800, 1.3, 1, 0.6);
+    this.osc('sine', 2500, 2400, t, 0.09, 0.12, 0.5);
+    this.osc('square', 300, 120, t, 0.04, 0.12);
+  }
+
+  /** Something heavy slid across felt. */
+  slide(dur = 0.35) {
+    if (!this.ctx) return;
+    this.burst(this.t, dur, 'lowpass', 520, 0.35, 0.7);
+  }
+
+  /** Coins dropped on a table; n is roughly how many. */
+  coins(n = 6) {
+    if (!this.ctx) return;
+    let tt = this.t;
+    for (let i = 0; i < n; i++) {
+      const f = rand(3800, 5600);
+      this.osc('sine', f, f * 0.995, tt, rand(0.08, 0.2), 0.06, 0.3);
+      this.burst(tt, 0.01, 'highpass', 6000, 0.12);
+      tt += rand(0.03, 0.09);
+    }
+  }
+
+  /** Heartbeat: lub-dub. */
+  heartbeat(vol = 1) {
+    if (!this.ctx) return;
+    const t = this.t;
+    this.osc('sine', 75, 38, t, 0.14, 0.7 * vol);
+    this.osc('sine', 70, 36, t + 0.17, 0.12, 0.5 * vol);
+  }
+
   /** Tinnitus after a close gunshot or your own death. */
   ring(dur = 3) {
     if (!this.ctx) return;

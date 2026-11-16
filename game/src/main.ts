@@ -1,4 +1,5 @@
 import './style.css';
+import { createChamber } from './games/chamber';
 import { createDinner } from './games/dinner';
 import { createMachine } from './games/machine';
 import { onAppMessage, inApp, send } from './shared/bridge';
@@ -12,6 +13,7 @@ import { Rng } from './shared/util';
 const GAMES: Record<string, GameFactory> = {
   dinner: createDinner,
   machine: createMachine,
+  chamber: createChamber,
 };
 
 const app = document.getElementById('app')!;
