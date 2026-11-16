@@ -184,6 +184,10 @@ export default function LobbyScreen() {
           <Text style={styles.ctaText}>PRACTICE</Text>
           <Text style={styles.soloSub}>NO BUY-IN</Text>
         </Pressable>
+        <Pressable style={[styles.cta, styles.solo, { marginTop: 0 }]} onPress={() => router.push({ pathname: '/play/[game]', params: { game: 'smoke', name } })}>
+          <Text style={styles.ctaText}>PLAY SMOKE BREAK</Text>
+          <Text style={styles.soloSub}>SOLO · 3 BOTS · NO BUY-IN</Text>
+        </Pressable>
       </SafeAreaView>
     </TouchableWithoutFeedback>
   );

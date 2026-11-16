@@ -3,6 +3,7 @@ import { createChamber } from './games/chamber';
 import { createDinner } from './games/dinner';
 import { createGrinder } from './games/grinder';
 import { createMachine } from './games/machine';
+import { createSmoke } from './games/smoke';
 import { onAppMessage, inApp, send } from './shared/bridge';
 import type { GameContext, GameFactory } from './shared/game';
 import { Hud } from './shared/hud';
@@ -16,6 +17,7 @@ const GAMES: Record<string, GameFactory> = {
   machine: createMachine,
   grinder: createGrinder,
   chamber: createChamber,
+  smoke: createSmoke,
 };
 
 const app = document.getElementById('app')!;
