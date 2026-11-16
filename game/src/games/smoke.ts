@@ -19,11 +19,12 @@ import { clamp, damp, lerp, rand, Rng, smooth } from '../shared/util';
  */
 
 const ROUND = 55;
-const DRAG_RATE = 0.55;
-const GOOD_MIN = 0.62;
-const EXHALE_BASE = 0.55;
-const EXHALE_PER = 1.2;
-const COUGH_T = 1.7;
+const DRAG_RATE = 0.45;
+const GOOD_MIN = 0.5;
+const EXHALE_BASE = 0.45;
+const EXHALE_PER = 0.8;
+const EXHALE_GRACE = 0.75;
+const COUGH_T = 1.0;
 const PUFFS_PER_CIG = 5;
 const MAX_PUFFS = 20;
 
@@ -39,8 +40,8 @@ type Kind = 'chain' | 'careful' | 'panicky';
 type State = 'idle' | 'drag' | 'exhale' | 'cough';
 
 const KINDS: Kind[] = ['chain', 'careful', 'panicky'];
-const TARGET: Record<Kind, [number, number]> = { chain: [0.78, 1.04], careful: [0.74, 0.86], panicky: [0.6, 1.06] };
-const WAIT: Record<Kind, [number, number]> = { chain: [0.05, 0.3], careful: [0.3, 0.6], panicky: [0.1, 0.5] };
+const TARGET: Record<Kind, [number, number]> = { chain: [0.65, 1.04], careful: [0.58, 0.78], panicky: [0.5, 1.05] };
+const WAIT: Record<Kind, [number, number]> = { chain: [0.05, 0.3], careful: [0.4, 0.8], panicky: [0.1, 0.6] };
 const EARLY: Record<Kind, number> = { chain: 0.3, careful: 0, panicky: 0.12 };
 
 interface Cig {
@@ -75,6 +76,7 @@ interface Smoker {
   tie: number;
   plumeT: number;
   cause: string;
+  why: string;
 }
 
 const lam = (color: number, extra: THREE.MeshLambertMaterialParameters = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra });
@@ -330,13 +332,38 @@ const REMARKS = {
 };
 
 const CSS = [
-  '.sb-meter { position:absolute; left:8%; right:8%; bottom:calc(env(safe-area-inset-bottom) + 50px); height:16px; background:rgba(0,0,0,.65); border:1px solid #4a4332; }',
-  '.sb-meter .zone { position:absolute; top:0; bottom:0; background:rgba(120,200,110,.22); border-left:1px solid #9fd08a; }',
-  '.sb-meter .fill { position:absolute; left:0; top:0; bottom:0; width:0; background:#f2c14a; }',
-  '.sb-meter.out .fill { background:#8a8576; }',
-  '.sb-meter.cough .fill { background:#ff3b2a; width:100% !important; animation:pulse .2s infinite alternate; }',
-  '.sb-meter.hot .fill { background:#9fd08a; }',
-  '.sb-cig { position:absolute; right:12px; bottom:calc(env(safe-area-inset-bottom) + 72px); font-size:11px; letter-spacing:2px; color:#b5aa92; }',
+  '.sb-ui { pointer-events:none; }',
+  '.sb-score { position:absolute; left:8px; right:8px; top:calc(env(safe-area-inset-top) + 66px); display:grid; grid-template-columns:repeat(4,1fr); gap:4px; }',
+  '.sb-chip { background:rgba(0,0,0,.62); border:1px solid #3a342a; text-align:center; padding:3px 0 2px; }',
+  '.sb-chip .n { font-size:30px; font-weight:900; line-height:1.05; color:#e9dcc3; }',
+  '.sb-chip .nm { font-size:9px; letter-spacing:1px; color:#b5aa92; }',
+  '.sb-chip .sub { font-size:9px; color:#8a7f68; letter-spacing:1px; height:11px; }',
+  '.sb-chip.me { outline:2px solid #f2c14a; }',
+  '.sb-chip.lead { border-color:#9fd08a; background:rgba(40,70,35,.7); }',
+  '.sb-chip.lead .n { color:#9fd08a; }',
+  '.sb-chip.meat { border-color:#ff3b2a; background:rgba(90,10,8,.8); }',
+  '.sb-chip.meat .n { color:#ff6a58; }',
+  '.sb-chip.meat .sub { color:#ff3b2a; font-weight:900; }',
+  '.sb-chip.bump { animation:sbbump .4s; }',
+  '@keyframes sbbump { 0% { transform:scale(1); } 40% { transform:scale(1.22); } 100% { transform:scale(1); } }',
+  '.sb-state { position:absolute; left:0; right:0; top:calc(env(safe-area-inset-top) + 156px); text-align:center; font-size:46px; font-weight:900; letter-spacing:4px; text-shadow:0 3px 0 #000, 0 0 18px currentColor; }',
+  '.sb-state.inhale { color:#ff8a2a; } .sb-state.exhale { color:#8fb4d8; } .sb-state.wait { color:#ff3b2a; } .sb-state.go { color:#9fd08a; }',
+  '.sb-state.cough { color:#ff3b2a; font-size:54px; animation:pulse .2s infinite alternate; } .sb-state.hide { opacity:0; }',
+  '.sb-coach { position:absolute; left:0; right:0; bottom:calc(env(safe-area-inset-bottom) + 31% + 18px); text-align:center; font-size:22px; font-weight:900; letter-spacing:4px; color:#fff; text-shadow:0 2px 0 #000; animation:pulse .5s infinite alternate; }',
+  '.sb-btn { position:absolute; left:10px; right:10px; bottom:calc(env(safe-area-inset-bottom) + 10px); height:27%; border:3px solid #ff8a2a; border-radius:16px; background:rgba(120,50,10,.3); display:flex; flex-direction:column; justify-content:center; padding:12px 14px; box-sizing:border-box; transition:background .1s, border-color .1s; }',
+  '.sb-btn .lbl { text-align:center; font-size:34px; font-weight:900; letter-spacing:3px; color:#fff; text-shadow:0 2px 0 #000; line-height:1.1; }',
+  '.sb-btn .sub { text-align:center; font-size:12px; letter-spacing:3px; color:#e0c9a0; margin-top:2px; }',
+  '.sb-btn.hold { background:rgba(255,138,42,.45); }',
+  '.sb-btn.go { border-color:#9fd08a; background:rgba(60,140,60,.55); }',
+  '.sb-btn.lock { border-color:#8fb4d8; background:rgba(30,40,56,.7); }',
+  '.sb-btn.lock .lbl { color:#8fb4d8; }',
+  '.sb-btn.cough { border-color:#ff3b2a; background:rgba(120,10,8,.7); }',
+  '.sb-btn.cough .lbl { color:#ff6a58; }',
+  '.sb-bar { position:relative; height:30px; background:rgba(0,0,0,.7); border:2px solid #4a4332; }',
+  '.sb-bar .zone { position:absolute; top:0; bottom:0; background:rgba(120,210,110,.38); border-left:2px solid #9fd08a; }',
+  '.sb-bar .long { position:absolute; top:0; bottom:0; right:0; background:rgba(255,59,42,.45); border-left:2px solid #ff3b2a; }',
+  '.sb-bar .fill { position:absolute; left:0; top:0; bottom:0; width:0; background:#ff8a2a; }',
+  '.sb-bar.go .fill { background:#9fd08a; } .sb-bar.out .fill { background:#8fb4d8; } .sb-bar.cough .fill { background:#ff3b2a; width:100% !important; }',
 ].join('\n');
 
 export const createSmoke: GameFactory = (ctx) => {
@@ -355,17 +382,18 @@ export const createSmoke: GameFactory = (ctx) => {
   const style = document.createElement('style');
   style.textContent = CSS;
   document.head.appendChild(style);
-  const meter = document.createElement('div');
-  meter.className = 'sb-meter';
-  meter.innerHTML = '<div class="zone"></div><div class="fill"></div>';
-  hud.root.appendChild(meter);
-  const zoneEl = meter.querySelector('.zone') as HTMLElement;
-  zoneEl.style.left = GOOD_MIN * 100 + '%';
-  zoneEl.style.right = '0';
-  const fillEl = meter.querySelector('.fill') as HTMLElement;
-  const cigEl = document.createElement('div');
-  cigEl.className = 'sb-cig';
-  hud.root.appendChild(cigEl);
+  const ui = document.createElement('div');
+  ui.className = 'sb-ui';
+  ui.innerHTML = '<div class="sb-score"></div><div class="sb-state hide"></div><div class="sb-coach"></div><div class="sb-btn"><div><div class="lbl"></div><div class="sub"></div></div></div>';
+  hud.root.appendChild(ui);
+  const q = (sel: string) => ui.querySelector(sel) as HTMLElement;
+  const scoreEl = q('.sb-score'), stateEl = q('.sb-state'), coachEl = q('.sb-coach'), btnEl = q('.sb-btn'), lblEl = q('.lbl'), subEl = q('.sb-btn .sub');
+  const setText = (e: HTMLElement, t: string) => {
+    if (e.textContent !== t) e.textContent = t;
+  };
+  const setCls = (e: HTMLElement, c: string) => {
+    if (e.className !== c) e.className = c;
+  };
 
   const players = start.players.slice(0, 4);
   const me = players.find((p) => p.id === start.you) ?? players[0];
@@ -399,7 +427,7 @@ export const createSmoke: GameFactory = (ctx) => {
     }
     return {
       info, number, you, kind, rng, subject, cig, seatX: you ? 0 : SEAT_X[seat], state: 'idle', t: 0, lung: 0, drawn: 0, exhaleT: 0, early: -1,
-      wait: kind ? rng.range(...WAIT[kind]) + rng.range(0.4, 1.6) : 0, tgt: 0, puffs: 0, cigs: 0, inCig: 0, coughs: 0, alive: true, tie: rng.next(), plumeT: 0, cause: '',
+      wait: kind ? rng.range(...WAIT[kind]) + rng.range(0.4, 1.6) : 0, tgt: 0, puffs: 0, cigs: 0, inCig: 0, coughs: 0, alive: true, tie: rng.next(), plumeT: 0, cause: '', why: '',
     } as Smoker;
   });
   const you = smokers.find((s) => s.you)!;
@@ -459,6 +487,12 @@ export const createSmoke: GameFactory = (ctx) => {
   let coughK = 0;
   let boardT = 0;
   let firstPuff = false;
+  const bump = new Map<Smoker, boolean>();
+  let weakUntil = 0;
+  let shakeK = 0;
+  let pv = 0;
+  let beatT = 0;
+  let wheezeT = 0;
   let motorOn = false;
   const glance = new THREE.Vector3();
   let glanceK = 0;
@@ -494,24 +528,26 @@ export const createSmoke: GameFactory = (ctx) => {
     s.exhaleT = good ? EXHALE_BASE + EXHALE_PER * s.lung : 0.4;
     s.plumeT = 0;
     const last = smokers.every((o) => o === s || o.puffs >= s.puffs);
-    s.early = s.kind && s.rng.chance(EARLY[s.kind] + (s.kind === 'panicky' && elapsed > 30 && last ? 0.3 : 0)) ? s.exhaleT * s.rng.range(0.5, 0.9) : -1;
+    s.early = s.kind && s.rng.chance(EARLY[s.kind] + (s.kind === 'panicky' && elapsed > 30 && last ? 0.3 : 0)) ? s.exhaleT * s.rng.range(0.4, 0.7) : -1;
     if (good) {
       s.puffs++;
       s.inCig++;
       if (s.inCig >= PUFFS_PER_CIG) finishCig(s);
       if (s.you) {
         ctx.haptic('light');
-        if (!firstPuff) {
-          firstPuff = true;
-          hud.setHint('');
-        }
+        firstPuff = true;
+        bump.set(s, true);
       }
     }
-    if (s.you) sfx.exhale(s.exhaleT);
+    if (s.you) {
+      sfx.exhale(s.exhaleT);
+      if (!good) weakUntil = elapsed + 0.9;
+    }
   }
 
-  function cough(s: Smoker) {
+  function cough(s: Smoker, why: string) {
     s.state = 'cough';
+    s.why = why;
     s.t = 0;
     s.lung = 0;
     s.coughs++;
@@ -536,7 +572,7 @@ export const createSmoke: GameFactory = (ctx) => {
     if (s.state === 'drag') {
       s.lung += DRAG_RATE * dt;
       if (s.kind && s.lung >= s.tgt && s.tgt < 1) release(s);
-      else if (s.lung >= 1) cough(s);
+      else if (s.lung >= 1) cough(s, 'TOO LONG');
     } else if (s.state === 'exhale') {
       s.plumeT -= dt;
       if (s.plumeT <= 0 && s.drawn >= GOOD_MIN) {
@@ -544,7 +580,7 @@ export const createSmoke: GameFactory = (ctx) => {
         const d = s.you ? new THREE.Vector3(0.05, 0.02, -1) : new THREE.Vector3(0.05, 0, 1);
         puff(mouthOf(s), d, 0.09 + s.drawn * 0.06, 0.55 + s.drawn * 0.3);
       }
-      if (s.early > 0 && s.t >= s.early) cough(s);
+      if (s.early > 0 && s.t >= s.early) cough(s, 'TOO EARLY');
       else if (s.t >= s.exhaleT) {
         s.state = 'idle';
         s.t = 0;
@@ -679,7 +715,10 @@ export const createSmoke: GameFactory = (ctx) => {
     down: () => {
       if (!begun || phase !== 'play' || !you.alive) return;
       if (you.state === 'idle') startDrag(you);
-      else if (you.state === 'exhale') cough(you);
+      else if (you.state === 'exhale') {
+        if (you.t < you.exhaleT * EXHALE_GRACE) cough(you, 'TOO EARLY');
+        else startDrag(you);
+      }
     },
     up: () => {
       if (you.state === 'drag') release(you);
@@ -695,6 +734,8 @@ export const createSmoke: GameFactory = (ctx) => {
     const pos = new THREE.Vector3().lerpVectors(REST, MOUTH, e);
     if (you.state === 'cough') pos.x += Math.sin(t * 60) * 0.012 * (1 - you.t / COUGH_T);
     pos.y += Math.sin(t * 1.4) * 0.003;
+    pos.x += noise(t, 1.3) * 0.012 * shakeK;
+    pos.y += noise(t + 5, 1.2) * 0.01 * shakeK;
     hand.position.copy(pos);
     hand.rotation.set(lerp(0.7, 0.95, e), lerp(0.2, 0.08, e), 0);
     fist.position.copy(pos).add(new THREE.Vector3(0, -0.015, 0.02));
@@ -731,6 +772,28 @@ export const createSmoke: GameFactory = (ctx) => {
     }
   }
 
+  const post = engine['post'] as THREE.ShaderMaterial;
+  const noise = (t: number, k: number) => Math.sin(t * 23 * k) * 0.5 + Math.sin(t * 37 * k + 1.3) * 0.3 + Math.sin(t * 61 * k + 2.1) * 0.2;
+
+  function pressureTick(dt: number) {
+    const drag = you.state === 'drag' && you.alive && phase === 'play';
+    pv = damp(pv, drag ? you.lung : 0, drag ? 14 : 3.5, dt);
+    shakeK = Math.pow(clamp((pv - 0.3) / 0.7, 0, 1), 1.6);
+    post.uniforms.vignette.value = 1.35 + shakeK * 1.9;
+    if (!drag) return;
+    beatT -= dt;
+    if (beatT <= 0 && pv > 0.3) {
+      beatT = 0.85 - 0.5 * shakeK;
+      sound.heartbeat(0.35 + shakeK * 0.9);
+      ctx.haptic('light');
+    }
+    wheezeT -= dt;
+    if (wheezeT <= 0 && pv > 0.45) {
+      wheezeT = 0.45 - 0.2 * shakeK;
+      noiseBurst(0, 0.3, 'bandpass', 1200 + shakeK * 1800, 2400 + shakeK * 1800, 0.05 + shakeK * 0.12, 0.05, 3);
+    }
+  }
+
   function cameraTick(dt: number, t: number) {
     coughK = Math.max(0, coughK - dt * 1.4);
     glanceK = Math.max(0, glanceK - dt * 0.6);
@@ -743,9 +806,11 @@ export const createSmoke: GameFactory = (ctx) => {
       look.lerp(new THREE.Vector3(loser.seatX * 0.7, loser.you ? 1.1 : 1.0, loser.you ? RAIL_Z : BENCH_Z), loser.you ? k : k * 0.5);
     }
     look.lerp(glance, smooth(Math.min(1, glanceK * 1.5)) * 0.3);
+    cam.position.x += noise(t, 1) * 0.03 * shakeK;
+    cam.position.y += noise(t + 3, 1.1) * 0.025 * shakeK;
     cam.lookAt(look);
-    cam.rotateZ(Math.sin(t * 38) * 0.03 * coughK - 0.4 * dk);
-    const fov = you.state === 'drag' ? 74 : 78;
+    cam.rotateZ(Math.sin(t * 38) * 0.03 * coughK - 0.4 * dk + noise(t + 7, 0.9) * 0.05 * shakeK);
+    const fov = 78 - shakeK * 9;
     if (Math.abs(cam.fov - fov) > 0.05) {
       cam.fov = damp(cam.fov, fov, 6, dt);
       cam.updateProjectionMatrix();
@@ -754,30 +819,68 @@ export const createSmoke: GameFactory = (ctx) => {
 
   function hudTick(dt: number) {
     if (!finished) hud.setTimer(Math.max(0, ROUND - elapsed));
-    if (!begun || !you.alive) hud.setStatus('', 'hidden');
-    else if (phase === 'exec') hud.setStatus('TIME', 'danger');
-    else if (you.state === 'cough') hud.setStatus('COUGH', 'danger');
-    else if (you.state === 'exhale') hud.setStatus('LET IT OUT', 'calm');
-    else if (you.state === 'drag' && you.lung >= GOOD_MIN) hud.setStatus('LET GO', 'warn');
-    else hud.setStatus('', 'hidden');
-    let cls = 'sb-meter';
-    let v = 0;
-    if (you.state === 'drag') {
-      v = you.lung;
-      if (you.lung >= GOOD_MIN) cls += ' hot';
-    } else if (you.state === 'exhale') {
-      v = you.drawn * (1 - clamp(you.t / you.exhaleT, 0, 1));
-      cls += ' out';
-    } else if (you.state === 'cough') cls += ' cough';
-    if (meter.className !== cls) meter.className = cls;
-    fillEl.style.width = clamp(v, 0, 1) * 100 + '%';
-    cigEl.textContent = you.cigs + ' CIG';
-    boardT += dt;
-    if (boardT > 0.12) {
-      boardT = 0;
-      hud.setBoard(smokers.map((s) => ({ name: tag(s), value: s.puffs, max: MAX_PUFFS, me: s.you, dead: !s.alive, label: s.alive ? s.cigs + ' CIG' : 'DEAD' })));
+    hud.setStatus('', 'hidden');
+    const live = begun && you.alive && phase === 'play';
+    let word = '', wcls = 'hide', btn = 'sb-btn', lbl = 'HOLD', sub = 'TO INHALE', coach = '';
+    if (phase === 'exec' && you.alive) {
+      word = 'TIME';
+      wcls = 'wait';
+      lbl = 'WAIT';
+      sub = 'THE TROLLEY IS COMING';
+      btn += ' cough';
+    } else if (live) {
+      if (you.state === 'cough') {
+        word = you.why;
+        wcls = 'cough';
+        lbl = 'WAIT';
+        sub = 'COUGHING';
+        btn += ' cough';
+      } else if (you.state === 'exhale') {
+        lbl = 'WAIT';
+        sub = 'EXHALING';
+        btn += ' lock';
+        coach = 'WAIT';
+        if (elapsed < weakUntil) {
+          word = 'TOO SHORT';
+          wcls = 'exhale';
+        }
+      } else if (you.state === 'drag') {
+        lbl = 'HOLDING';
+        sub = 'INHALING';
+        btn += ' hold';
+        coach = you.lung > 0.4 ? 'LET GO WHEN IT SHAKES' : 'HOLD';
+      } else coach = 'HOLD';
+    } else if (!you.alive) {
+      lbl = 'DEAD';
+      sub = '';
+      btn += ' cough';
     }
-    engine.tint = damp(engine.tint, phase === 'exec' ? 0.3 : you.state === 'cough' ? 0.2 : 0, 6, dt);
+    setText(stateEl, word);
+    setCls(stateEl, 'sb-state ' + wcls);
+    setCls(btnEl, btn);
+    setText(lblEl, lbl);
+    setText(subEl, sub);
+    setText(coachEl, !firstPuff && live && elapsed < 25 ? coach : '');
+    boardT += dt;
+    if (boardT > 0.1) {
+      boardT = 0;
+      const ranked = order();
+      const lowest = ranked[ranked.length - 1];
+      const meat = phase === 'play' && ROUND - elapsed < 10 && begun;
+      scoreEl.innerHTML = smokers
+        .map((s) => {
+          let cls = 'sb-chip' + (s.you ? ' me' : '');
+          if (s === ranked[0] && s.puffs > 0) cls += ' lead';
+          if (!s.alive || (meat && s === lowest)) cls += ' meat';
+          if (bump.get(s)) {
+            cls += ' bump';
+            bump.set(s, false);
+          }
+          return '<div class="' + cls + '"><div class="nm">' + (s.you ? 'YOU' : s.info.name.toUpperCase()) + '</div><div class="n">' + s.puffs + '</div><div class="sub">' + (!s.alive ? 'DEAD' : meat && s === lowest ? 'DEAD MEAT' : s.cigs + ' CIG') + '</div></div>';
+        })
+        .join('');
+    }
+    engine.tint = damp(engine.tint, phase === 'exec' ? 0.3 : you.state === 'cough' ? 0.2 : shakeK * 0.35, 6, dt);
     room.danger.intensity = engine.tint * 12;
   }
 
@@ -785,9 +888,10 @@ export const createSmoke: GameFactory = (ctx) => {
   hud.setPot(start.pot);
   hud.setLimbs(me.limbs);
   hud.setTimer(ROUND);
-  hud.setHint('<b>HOLD</b> TO DRAG · <b>LET GO</b> TO EXHALE');
+  hud.setHint('');
+  hud.setBoard([]);
   void hud
-    .intro('SIMULATION 05', 'SMOKE BREAK', ['<b>HOLD</b> TO DRAG. <b>LET GO</b> TO EXHALE.', 'MOST SMOKED LIVES.'])
+    .intro('SIMULATION 05', 'SMOKE BREAK', ['<b>HOLD</b> = INHALE. <b>RELEASE</b> = EXHALE.', 'FEWEST PUFFS DIES.'])
     .then(() => {
       sound.unlock();
       sound.drone(true);
@@ -809,6 +913,7 @@ export const createSmoke: GameFactory = (ctx) => {
     room.shade.rotation.z = Math.sin(t * 0.8) * 0.03;
     for (const f of room.flickers) f.update(dt);
     gore.update(dt);
+    pressureTick(dt);
     visuals(dt, t);
     cameraTick(dt, t);
     hudTick(dt);
