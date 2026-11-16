@@ -50,6 +50,10 @@
       "eas": {
         "projectId": "21e6658c-52ff-4c52-a978-05b33db51069"
       }
+    },
+    "runtimeVersion": "exposdk:58.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/21e6658c-52ff-4c52-a978-05b33db51069"
     }
   }
 }

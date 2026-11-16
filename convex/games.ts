@@ -148,6 +148,7 @@ const chamber: ServerGame = {
 /** Server adapters by game key (the `game` field of the start message). */
 export const GAMES: Record<string, ServerGame> = {
   dinner,
+  smoke: selfReported(),
   grinder: selfReported(),
   chamber,
 };

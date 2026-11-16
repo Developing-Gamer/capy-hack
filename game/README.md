@@ -102,6 +102,18 @@ The page only accepts one `start`; to replay, remount the WebView (the play scre
 
 
 
+## Smoke Break (`src/games/smoke.ts`)
+
+Machine Party's cigarette game. Hold to drag (the lung meter fills), let go inside the green zone for a
+puff, then wait out the exhale before pressing again. Dragging to the end of the meter or pressing
+during the exhale coughs: the subject is stuck for 1.7 s, the camera shakes and later coughs spray
+blood. Five puffs finish a cigarette. After 55 s the subject with the fewest puffs (fewer coughs,
+then a seeded tiebreak) is shot by the gun on the trolley; the others keep their limbs. Bots are a
+chain smoker (greedy, coughs a lot), a careful one (slow and steady) and a panicky one (rushes when
+last). Each bot has its own `Rng` seeded from the round seed, so a round replays identically from
+the same seed plus the human's presses. Desktop: `?game=smoke` (hold mouse or Space); `&auto`
+lets a careful bot play for you. No engine changes.
+
 ### Shared-layer additions (all optional, existing games unaffected)
 
 - `Surface.vel` (`gore.ts`): a conveyor velocity. Decals and resting gibs on that surface ride
@@ -115,6 +127,7 @@ The page only accepts one `start`; to replay, remount the WebView (the play scre
 
 ## Games
 
+- `smoke` (`src/games/smoke.ts`): Smoke Break. Drag, exhale, don't cough; the fewest puffs is shot.
 - `dinner` (`src/games/dinner.ts`): Dinner Party. Eat while the host reads; he shoots movers.
 - `chamber` (`src/games/chamber.ts`): Last Chamber, Russian roulette for the pot (below).
 - `grinder` (`src/games/grinder.ts`): The Grinder. Alternate left / right taps to haul back along
