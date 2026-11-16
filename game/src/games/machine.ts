@@ -18,9 +18,9 @@ import { clamp, damp, lerp, rand, smooth } from '../shared/util';
  * are secret and handed to the next trials through the result's `purchases`.
  */
 
-const WINDOW = 45;
+const WINDOW = 60;
 const WAKE = 3.6;
-const COIN_T = 1.0;
+const COIN_T = 1.5;
 const START_COINS = 12;
 const INSERT = 0.24;
 const WITHDRAW = 0.13;
@@ -1134,7 +1134,7 @@ const REMARKS = {
   unpaid: ['Outstanding balance collected in kind.', 'The Machine does not extend credit.'],
 };
 
-const CHATTER = ['PRICES INCLUDE AN ANATOMICAL FEE.', 'NO REFUNDS. NO WITNESSES.', 'THE JAR IS NOT FULL.', 'STOCK IS LIMITED. SUBJECTS ARE NOT.', 'KEEP YOUR HAND STILL. IT HELPS.'];
+const CHATTER = ['PRICES INCLUDE A FEE.', 'NO REFUNDS. NO WITNESSES.', 'THE JAR IS NOT FULL.', 'STOCK IS LIMITED.', 'KEEP YOUR HAND STILL. IT HELPS.'];
 
 const CSS = `
 .mx-say { position:absolute; left:14px; right:14px; top:calc(env(safe-area-inset-top) + 72px); text-align:center; color:#6dff92; font-size:12px; font-weight:700; letter-spacing:1.5px; line-height:1.35; text-shadow:0 0 6px rgba(60,255,106,.55), 0 1px 0 #000; min-height:34px; }
@@ -1338,9 +1338,18 @@ export const createMachine: GameFactory = (ctx) => {
 
   let sayFull = '';
   let sayShown = 0;
+  let sayHold = 0;
+  const sayQ: { line: string; crt?: string; angry: boolean }[] = [];
   function say(line: string, crt?: string, angry = false) {
+    sayQ.push({ line, crt, angry });
+    sayQ.splice(0, sayQ.length - 2);
+    if (sayShown >= sayFull.length && sayHold <= 0) sayNext();
+  }
+  function sayNext() {
+    const { line, crt, angry } = sayQ.shift()!;
     sayFull = line;
     sayShown = 0;
+    sayHold = 1.3;
     sayEl.className = 'mx-say' + (angry ? ' red' : '');
     if (crt !== undefined) machine.text = crt;
     machine.talk = Math.min(3.5, 0.6 + line.length * 0.035);
@@ -1490,7 +1499,7 @@ export const createMachine: GameFactory = (ctx) => {
       if (pt >= 1.3 && !machine.text) say('I HAVE AN OFFER.', 'I HAVE AN OFFER');
       if (pt >= dur) {
         openAt = elapsed;
-        say('INSERT HAND. THE SLOT IS HUNGRY. THIS IS NORMAL.', 'INSERT HAND');
+        say('INSERT HAND. THIS IS NORMAL.', 'INSERT HAND');
         reopen();
       }
     } else if (phase === 'idle') {
@@ -1555,9 +1564,9 @@ export const createMachine: GameFactory = (ctx) => {
     severArm(s);
     if (last) {
       schedule(s, 'Bitten twice by the payment slot', ['press']);
-      say(`SUBJECT ${num(s)} IS OUT OF ARMS. COLLECTING THE REST.`, 'COLLECTING', true);
+      say(`SUBJECT ${num(s)} IS OUT OF ARMS.`, 'COLLECTING', true);
     } else {
-      say(`THE MACHINE KEEPS THE ARM, SUBJECT ${num(s)}.`, 'THANK YOU', true);
+      say(`I KEEP THE ARM, SUBJECT ${num(s)}.`, 'THANK YOU', true);
     }
     glance.copy(s.station.mouth);
     glanceK = 1;
@@ -1680,10 +1689,10 @@ export const createMachine: GameFactory = (ctx) => {
     if (s.subject) s.subject.relaxed = true;
     hud.feed(`<b>${tag(s)}</b> PAID.`);
     if (s.you) {
-      say('PAYMENT ACCEPTED. YOUR SECRET IS SAFE. MOSTLY.', 'ACCEPTED');
+      say('PAID. YOUR SECRET IS SAFE.', 'ACCEPTED');
       hud.setHint('');
       ctx.haptic('heavy');
-    } else say(`TRANSACTION SEALED. STOCK: ${stock}.`);
+    } else say(`SEALED. STOCK: ${stock}.`);
     grabber.deliver(s.station.tray, () => {
       if (s.you && s.offer && s.victim) {
         hud.feed(s.offer.done(s.victim.info.name.toUpperCase()));
@@ -1695,7 +1704,7 @@ export const createMachine: GameFactory = (ctx) => {
       closing = true;
       closeReason = 'sold';
       later(0.8, () => {
-        say('SOLD OUT. THE LAST SUBJECT BECOMES STOCK.', 'SOLD OUT', true);
+        say('SOLD OUT. THE LAST ONE IS STOCK.', 'SOLD OUT', true);
         for (const o of shopping()) schedule(o, 'Sold out. Retained as stock', o.you ? ['press'] : ['gut', 'press']);
       });
     }
@@ -1709,7 +1718,7 @@ export const createMachine: GameFactory = (ctx) => {
     machine.mode = 'green';
     machine.lookTarget.set(0, 0.2);
     for (const s of shoppers) s.station.podium.jawTarget = 1;
-    say('THANK YOU FOR YOUR BUSINESS. THEY WILL FIND OUT.', 'THANK YOU');
+    say('THANK YOU. THEY WILL FIND OUT.', 'THANK YOU');
     sound.intensity = 0.3;
   }
 
@@ -1720,7 +1729,7 @@ export const createMachine: GameFactory = (ctx) => {
       closeReason = 'time';
       const left = shopping().sort((a, b) => a.paid - b.paid);
       if (left.length) {
-        say('CLOSED. UNPAID BALANCES COLLECTED IN KIND.', 'CLOSED', true);
+        say('CLOSED. DEBTS COLLECTED IN KIND.', 'CLOSED', true);
         for (const s of left) schedule(s, 'Unpaid at closing. Balance collected in kind', s.you ? ['press'] : ['gut', 'press']);
       }
     }
@@ -1936,9 +1945,9 @@ export const createMachine: GameFactory = (ctx) => {
   function hudTick(dt: number) {
     if (!finished && opened()) hud.setTimer(WINDOW - openFor());
     if (sayShown < sayFull.length) {
-      sayShown = Math.min(sayFull.length, sayShown + dt * 45);
+      sayShown = Math.min(sayFull.length, sayShown + dt * 60);
       sayEl.textContent = sayFull.slice(0, Math.ceil(sayShown));
-    }
+    } else if ((sayHold -= dt) <= 0 && sayQ.length) sayNext();
     if (!you.alive || phase === 'intro' || phase === 'wake') hud.setStatus('', 'hidden');
     else if (phase === 'close') hud.setStatus('CLOSED', 'calm');
     else if (phase === 'exec') hud.setStatus(closing ? (closeReason === 'sold' ? 'SOLD OUT' : 'CLOSED') : 'COLLECTING', 'danger');
@@ -1965,7 +1974,7 @@ export const createMachine: GameFactory = (ctx) => {
     if (chatterT > 0) return;
     chatterT = rand(7, 11);
     const browsing = shopping().filter((s) => s.depth < 0.1 && !s.you);
-    if (browsing.length && Math.random() < 0.4) say(`I SEE YOU BROWSING, SUBJECT ${num(browsing[Math.floor(Math.random() * browsing.length)])}.`);
+    if (browsing.length && Math.random() < 0.4) say(`I SEE YOU, SUBJECT ${num(browsing[Math.floor(Math.random() * browsing.length)])}.`);
     else say(CHATTER[Math.floor(Math.random() * CHATTER.length)]);
   }
 

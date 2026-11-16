@@ -72,9 +72,9 @@ The page only accepts one `start`; to replay, remount the WebView (the play scre
 ## The Machine (`src/games/machine.ts`)
 
 The intermission shop. Each subject picks an offer and a victim, then holds a hand in a toothed
-payment slot to feed coins (1 per second). When the CRT eye goes amber then red every slot bites:
+payment slot to feed coins (one every 1.5 s). When the CRT eye goes amber then red every slot bites:
 the first bite takes the arm, the second gets the subject crushed by the press overhead. Stock is
-one short of the batch, so the last subject still shopping is "stocked"; anyone unpaid at 0:45 is
+one short of the batch, so the last subject still shopping is "stocked"; anyone unpaid at 1:00 is
 collected. Desktop: `?game=machine`, keys 1-4 pick an offer, 5-7 a victim, B forces a bite.
 
 Hand-off to later trials (types in `src/shared/protocol.ts`):
