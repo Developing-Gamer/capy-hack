@@ -33,6 +33,20 @@ export const join = mutation({
   },
 });
 
+export const start = mutation({
+  args: { code: v.string(), playerId: v.id("players") },
+  handler: async (ctx, { code, playerId }) => {
+    const room = await ctx.db.query("rooms").withIndex("by_code", (q) => q.eq("code", code.toUpperCase())).unique();
+    if (!room) throw new Error("No room with that code");
+    if (room.status !== "lobby") return;
+    const players = await ctx.db.query("players").withIndex("by_room", (q) => q.eq("roomId", room._id)).collect();
+    if (players[0]?._id !== playerId) throw new Error("Only the host can start the trials");
+    if (players.length < 2) throw new Error("Need at least 2 subjects");
+    if (!players.every((p) => p.paid)) throw new Error("Everyone has to sign the waiver first");
+    await ctx.db.patch(room._id, { status: "playing" });
+  },
+});
+
 export const get = query({
   args: { code: v.string() },
   handler: async (ctx, { code }) => {

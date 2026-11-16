@@ -5,15 +5,22 @@ const API = {
   production: "https://api.whop.com/api/v1",
 };
 
+const environment = () => (process.env.WHOP_ENVIRONMENT === "production" ? "production" : "sandbox");
+
+export async function whop(path: string, init?: RequestInit) {
+  const env = environment();
+  const res = await fetch(`${API[env]}${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${process.env.WHOP_API_KEY}`, "Content-Type": "application/json" },
+  });
+  if (!res.ok) throw new Error(`Whop ${env} API returned ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
 export const company = action({
   args: {},
   handler: async () => {
-    const env = process.env.WHOP_ENVIRONMENT === "production" ? "production" : "sandbox";
-    const res = await fetch(`${API[env]}/companies/${process.env.WHOP_COMPANY_ID}`, {
-      headers: { Authorization: `Bearer ${process.env.WHOP_API_KEY}` },
-    });
-    if (!res.ok) throw new Error(`Whop ${env} API returned ${res.status}`);
-    const company = await res.json();
-    return { environment: env, id: company.id as string, title: company.title as string };
+    const company = await whop(`/companies/${process.env.WHOP_COMPANY_ID}`);
+    return { environment: environment(), id: company.id as string, title: company.title as string };
   },
 });
