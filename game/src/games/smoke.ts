@@ -384,10 +384,10 @@ export const createSmoke: GameFactory = (ctx) => {
   document.head.appendChild(style);
   const ui = document.createElement('div');
   ui.className = 'sb-ui';
-  ui.innerHTML = '<div class="sb-score"></div><div class="sb-state hide"></div><div class="sb-coach"></div><div class="sb-btn"><div><div class="lbl"></div><div class="sub"></div></div></div>';
+  ui.innerHTML = '<div class="sb-score"></div><div class="sb-state hide"></div>';
   hud.root.appendChild(ui);
   const q = (sel: string) => ui.querySelector(sel) as HTMLElement;
-  const scoreEl = q('.sb-score'), stateEl = q('.sb-state'), coachEl = q('.sb-coach'), btnEl = q('.sb-btn'), lblEl = q('.lbl'), subEl = q('.sb-btn .sub');
+  const scoreEl = q('.sb-score'), stateEl = q('.sb-state');
   const setText = (e: HTMLElement, t: string) => {
     if (e.textContent !== t) e.textContent = t;
   };
@@ -536,6 +536,7 @@ export const createSmoke: GameFactory = (ctx) => {
       if (s.you) {
         ctx.haptic('light');
         firstPuff = true;
+        hud.setHint('');
         bump.set(s, true);
       }
     }
@@ -569,6 +570,7 @@ export const createSmoke: GameFactory = (ctx) => {
   function tickSmoker(s: Smoker, dt: number) {
     if (!s.alive) return;
     s.t += dt;
+    if (s.you && !auto && s.state === 'drag' && !pad.held) release(s);
     if (s.state === 'drag') {
       s.lung += DRAG_RATE * dt;
       if (s.kind && s.lung >= s.tgt && s.tgt < 1) release(s);
@@ -821,46 +823,24 @@ export const createSmoke: GameFactory = (ctx) => {
     if (!finished) hud.setTimer(Math.max(0, ROUND - elapsed));
     hud.setStatus('', 'hidden');
     const live = begun && you.alive && phase === 'play';
-    let word = '', wcls = 'hide', btn = 'sb-btn', lbl = 'HOLD', sub = 'TO INHALE', coach = '';
+    let word = '', wcls = 'hide';
     if (phase === 'exec' && you.alive) {
       word = 'TIME';
       wcls = 'wait';
-      lbl = 'WAIT';
-      sub = 'THE TROLLEY IS COMING';
-      btn += ' cough';
     } else if (live) {
       if (you.state === 'cough') {
         word = you.why;
         wcls = 'cough';
-        lbl = 'WAIT';
-        sub = 'COUGHING';
-        btn += ' cough';
       } else if (you.state === 'exhale') {
-        lbl = 'WAIT';
-        sub = 'EXHALING';
-        btn += ' lock';
-        coach = 'WAIT';
         if (elapsed < weakUntil) {
           word = 'TOO SHORT';
           wcls = 'exhale';
         }
       } else if (you.state === 'drag') {
-        lbl = 'HOLDING';
-        sub = 'INHALING';
-        btn += ' hold';
-        coach = you.lung > 0.4 ? 'LET GO WHEN IT SHAKES' : 'HOLD';
-      } else coach = 'HOLD';
-    } else if (!you.alive) {
-      lbl = 'DEAD';
-      sub = '';
-      btn += ' cough';
+      }
     }
     setText(stateEl, word);
     setCls(stateEl, 'sb-state ' + wcls);
-    setCls(btnEl, btn);
-    setText(lblEl, lbl);
-    setText(subEl, sub);
-    setText(coachEl, !firstPuff && live && elapsed < 25 ? coach : '');
     boardT += dt;
     if (boardT > 0.1) {
       boardT = 0;
@@ -888,7 +868,7 @@ export const createSmoke: GameFactory = (ctx) => {
   hud.setPot(start.pot);
   hud.setLimbs(me.limbs);
   hud.setTimer(ROUND);
-  hud.setHint('');
+  hud.setHint('<b>HOLD</b> ANYWHERE TO INHALE · <b>LET GO</b> TO EXHALE');
   hud.setBoard([]);
   void hud
     .intro('SIMULATION 05', 'SMOKE BREAK', ['<b>HOLD</b> = INHALE. <b>RELEASE</b> = EXHALE.', 'FEWEST PUFFS DIES.'])
