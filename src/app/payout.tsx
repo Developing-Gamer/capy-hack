@@ -36,8 +36,8 @@ export default function PayoutScreen() {
   const won = winner._id === me;
   const paid = players.filter((p) => p.paid).length;
   const status = payout?.status ?? 'sending';
-  const STATUS = { sending: 'SENDING…', processing: 'SENDING…', paid: '● SENT', owed: '▲ OWED' } as const;
-  const statusTone = status === 'paid' ? 'green' : status === 'owed' ? 'red' : 'amber';
+  const STATUS = { sending: 'SENDING…', processing: 'SENDING…', paid: '● TRANSFERRED', simulated: '● TRANSFERRED', owed: '▲ OWED' } as const;
+  const statusTone = status === 'owed' ? 'red' : status === 'paid' || status === 'simulated' ? 'green' : 'amber';
 
   const lines: Line[] = won
     ? [
@@ -126,13 +126,14 @@ function Winner({ pot, status }: { pot: number; status: string }) {
   }, [pot, pulse]);
 
   useEffect(() => {
-    if (status !== 'paid' || paidOnce.current) return;
+    if ((status !== 'paid' && status !== 'simulated') || paidOnce.current) return;
     paidOnce.current = true;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, [status]);
 
   const amt = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
-  const into = status === 'paid' ? 'PAID TO YOUR WHOP' : status === 'owed' ? 'OWED BY THE HOUSE' : 'SENDING TO YOUR WHOP…';
+  const into =
+    status === 'paid' || status === 'simulated' ? `${money(pot)} TRANSFERRED · WHOP` : status === 'owed' ? 'OWED BY THE HOUSE' : 'SENDING TO WHOP…';
 
   return (
     <View style={styles.hero}>
