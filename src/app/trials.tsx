@@ -7,8 +7,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
-import type { GameToApp, Hat, Limb, StartMessage } from '../../game/src/shared/protocol';
+import type { GameToApp, Hat, Limb, OfferId, StartMessage } from '../../game/src/shared/protocol';
 import { GameView } from '../game/GameView';
+
+const OFFER_NAMES: Record<OfferId, string> = { short_fuse: 'SHORT FUSE', marked: 'MARKED', one_more_round: 'ONE MORE ROUND', limb_swap: 'LIMB SWAP' };
+/** How long a victim sees that sabotage on them was voided. */
+const NOTICE_MS = 6000;
 
 /** Offset (ms) to add to Date.now() to get the server clock, from the fastest of a few round trips. */
 function useServerOffset() {
@@ -44,6 +48,14 @@ export default function TrialsScreen() {
   const act = useMutation(api.trials.act);
   const offset = useServerOffset();
   const [done, setDone] = useState<string | null>(null);
+  const [noticeOff, setNoticeOff] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!match) return;
+    const id = match.matchId;
+    const timer = setTimeout(() => setNoticeOff(id), NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [match?.matchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const start = useMemo<StartMessage | null>(() => {
     if (!match || offset === null || !room) return null;
@@ -54,7 +66,9 @@ export default function TrialsScreen() {
       you: playerId,
       pot: room.room.pot,
       startAt: match.startAt - offset,
-      players: match.seats.map((s) => ({ id: s.id, name: s.name, hat: s.hat as Hat, limbs: s.limbs as Limb[], isBot: s.bot })),
+      // In a game each phone plays alone, the other humans are played by bots on this phone.
+      players: match.seats.map((s) => ({ id: s.id, name: s.name, hat: s.hat as Hat, limbs: s.limbs as Limb[], isBot: s.bot || (!match.refereed && s.id !== playerId) })),
+      purchases: match.purchases,
     };
     // A new match is the only thing that should restart the WebView.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -75,6 +89,8 @@ export default function TrialsScreen() {
   const mine = match.results?.find((r) => r.id === playerId);
   const meAlive = room?.players.find((p) => p._id === playerId)?.alive !== false;
   const between = mine?.dead ? (meAlive ? 'LIMB RECLAIMED. CONTINUE.' : 'OUT OF LIMBS.') : 'STAND BY.';
+  const voided = [...new Set(match.voided.filter((p) => p.victim === playerId).map((p) => OFFER_NAMES[p.offer]))];
+  const notice = noticeOff !== match.matchId && voided.length > 0 ? `${voided.join(' · ')} VOIDED.` : null;
   return (
     <View style={styles.screen}>
       <StatusBar hidden />
@@ -82,6 +98,11 @@ export default function TrialsScreen() {
       {(match.over || done === match.matchId) && (
         <View style={[styles.banner, { bottom: insets.bottom + 24 }]}>
           <Text style={styles.bannerText}>{between}</Text>
+        </View>
+      )}
+      {notice && (
+        <View style={[styles.banner, { top: insets.top + 8 }]}>
+          <Text style={styles.bannerText}>{notice}</Text>
         </View>
       )}
       {!meSeated && (

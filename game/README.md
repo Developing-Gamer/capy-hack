@@ -91,6 +91,29 @@ The page only accepts one `start`; to replay, remount the WebView (the play scre
 5. `npm run game:build`, commit `src/game/html.ts`, and open it from the app with
    `router.push({ pathname: '/play/[game]', params: { game: '<name>' } })`.
 
+## The Machine (`src/games/machine.ts`)
+
+The intermission shop. Each subject picks an offer and a victim, then holds a hand in a toothed
+payment slot to feed coins (one every 1.5 s). When the CRT eye goes amber then red every slot bites:
+the first bite takes the arm, the second gets the subject crushed by the press overhead. Stock is
+one short of the batch, so the last subject still shopping is "stocked"; anyone unpaid at 1:00 is
+collected. Desktop: `?game=machine`, keys 1-4 pick an offer, 5-7 a victim, B forces a bite.
+
+Hand-off to later trials (types in `src/shared/protocol.ts`):
+
+- `result.purchases`: `[{ buyer, offer, victim }]`, player ids plus an `OfferId`
+  (`short_fuse` -3 s on the victim's next timer, `marked` the next antagonist watches them first,
+  `one_more_round` an extra bullet in their next chamber pull, `limb_swap` buyer and victim trade
+  limb sets). Purchases are secret: only the buyer's own phone shows what it bought.
+- `result.placements[].limbs`: limbs left after the shop (bites remove arms).
+- The app forwards both into the next `start`: `players[].limbs` and `start.purchases`. A trial
+  applies the purchases it understands and ignores the rest, and skips victims who are dead.
+- `players[].coins` is optional (defaults to 12).
+
+Shared-engine additions (backward compatible): `sound.raw` exposes the WebAudio context, buses,
+reverb send and noise buffer for game-specific synthesis, and `ctx.finish(placements, extra?)`
+spreads `extra` (`purchases`) into the `result` message.
+
 `src/games/dinner.ts` is the reference: room building, a scripted antagonist, bots, an execution
 queue with slow-mo kills, and the round result. Its rules live in `src/games/dinner-rules.ts`, which
 has no three.js and is imported by the Convex server too.

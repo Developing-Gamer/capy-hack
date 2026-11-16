@@ -1,3 +1,4 @@
+import type { Purchase } from '../shared/protocol';
 import { Rng } from '../shared/util';
 
 /*
@@ -17,6 +18,8 @@ export const LOWER = 0.3;
 export const DROP = 0.14;
 /** Seconds of being observed before movement counts (human reaction). */
 export const GRACE = 0.3;
+/** Seconds Short Fuse takes off the victim's dinner. */
+export const FUSE = 3;
 /** Host down-ness at which he can see the table. */
 const SEES = 0.55;
 const RAISE_DUR = 0.4;
@@ -196,7 +199,7 @@ export interface BotPlan {
  * Simulates one bot through the whole round at a fixed step, reacting only to the host schedule,
  * so the same seed gives the same plan on every device.
  */
-export function botPlan(seed: number, index: number, kind: Kind, segs = hostSchedule(seed), windows = watchWindows(segs)): BotPlan {
+export function botPlan(seed: number, index: number, kind: Kind, segs = hostSchedule(seed), windows = watchWindows(segs), grace = GRACE): BotPlan {
   const rng = new Rng((seed + Math.imul(index + 1, 0x9e3779b1)) >>> 0);
   const p = PERSONALITIES[kind];
   const dt = 1 / STEPS_PER_SECOND;
@@ -319,7 +322,7 @@ export function botPlan(seed: number, index: number, kind: Kind, segs = hostSche
       return plan;
     }
     while (w < windows.length && windows[w][1] < t) w++;
-    if (fork !== 'idle' && w < windows.length && t >= windows[w][0] + GRACE && t <= windows[w][1]) {
+    if (fork !== 'idle' && w < windows.length && t >= windows[w][0] + grace && t <= windows[w][1]) {
       plan.deathT = t;
       plan.deathCause = fork === 'stab' ? CAUSE.stab : CAUSE.eat;
       return plan;
@@ -357,7 +360,23 @@ export interface Seat {
   bot: boolean;
   /** Whether the subject still has its right (fork) arm. */
   arm: boolean;
+  /** Marked: the host looks at this subject first, so it gets no reaction time. */
+  marked?: boolean;
+  /** Short Fuse: seconds cut from this subject's dinner. */
+  fuse?: number;
 }
+
+/** Applies the sabotage Dinner Party understands (Marked, Short Fuse) to the seats. */
+export function sabotage(seats: Seat[], purchases: Purchase[] = []): Seat[] {
+  return seats.map((s) => {
+    const on = purchases.filter((p) => p.victim === s.id);
+    const fuse = on.filter((p) => p.offer === 'short_fuse').length * FUSE;
+    return { ...s, ...(on.some((p) => p.offer === 'marked') && { marked: true }), ...(fuse && { fuse }) };
+  });
+}
+
+/** Seconds a subject has to clean its plate. */
+export const deadline = (seat: Seat) => ROUND - (seat.fuse ?? 0);
 
 export interface Outcome {
   id: string;
@@ -413,14 +432,14 @@ const tables = new Map<string, Table>();
 
 /** Host schedule, watch windows and every bot's plan for a referee (cached per seed and seating). */
 export function tableFor(seed: number, seats: Seat[]): Table {
-  const key = seed + ':' + seats.map((s) => (s.bot ? 'b' : 'h')).join('');
+  const key = seed + ':' + seats.map((s) => (s.bot ? 'b' : 'h') + (s.marked ? 'm' : '')).join('');
   const hit = tables.get(key);
   if (hit) return hit;
   const segs = hostSchedule(seed);
   const windows = watchWindows(segs);
   const kinds = botKinds(seed);
   const plans = new Map<string, BotPlan>();
-  seats.filter((s) => s.bot).forEach((s, i) => plans.set(s.id, botPlan(seed, i, kinds[i % kinds.length], segs, windows)));
+  seats.filter((s) => s.bot).forEach((s, i) => plans.set(s.id, botPlan(seed, i, kinds[i % kinds.length], segs, windows, s.marked ? 0 : GRACE)));
   const table = { segs, windows, plans };
   if (tables.size > 16) tables.clear();
   tables.set(key, table);
@@ -450,6 +469,8 @@ export function advance(ref: Referee, horizon: number): Outcome[] {
 
   for (const seat of ref.seats) {
     if (resolved(seat.id)) continue;
+    const end = deadline(seat);
+    if (end < ROUND && end > from && end <= to) candidates.push({ t: end, id: seat.id, status: 'dead', cause: CAUSE.time });
     if (seat.bot) {
       const plan = table.plans.get(seat.id)!;
       if (plan.deathT > from && plan.deathT <= to) candidates.push({ t: plan.deathT, id: seat.id, status: 'dead', cause: plan.deathCause });
@@ -460,7 +481,7 @@ export function advance(ref: Referee, horizon: number): Outcome[] {
     const done = acts.find((a) => a.t > from && a.t <= to && a.fork === 'idle' && a.eaten >= PEAS);
     if (done) candidates.push({ t: done.t, id: seat.id, status: 'excused', cause: '' });
     for (const [a, b] of table.windows) {
-      const i0 = Math.max(a + GRACE, from);
+      const i0 = Math.max(a + (seat.marked ? 0 : GRACE), from);
       const i1 = Math.min(b, to);
       if (i0 > i1) continue;
       const at = forkAt(acts, i0);

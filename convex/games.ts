@@ -1,8 +1,11 @@
 import { Infer } from "convex/values";
-import { type Act, advance, type Fork, newReferee, placements, recordAct, type Referee, viewOf } from "../game/src/games/dinner-rules";
-import { seat } from "./schema";
+import { type Act, advance, type Fork, newReferee, placements, recordAct, type Referee, sabotage, viewOf } from "../game/src/games/dinner-rules";
+import type { OfferId } from "../game/src/shared/protocol";
+import { purchase, seat } from "./schema";
 
 export type SeatInfo = Infer<typeof seat>;
+export type Purchase = Infer<typeof purchase>;
+const OFFERS: OfferId[] = ["short_fuse", "marked", "one_more_round", "limb_swap"];
 
 export interface SeatResult {
   id: string;
@@ -18,9 +21,13 @@ export interface SeatResult {
 export interface ServerGame {
   /** Seats at the table; bots fill whatever the humans leave empty. */
   seats: number;
+  /** True when the server referees one shared round; false when each phone plays its own copy. */
+  refereed: boolean;
+  /** Sabotage this game applies itself (Limb Swap is applied by the runner before any trial). */
+  applies: OfferId[];
   /** How often tick runs while the round is live. */
   tickMs: number;
-  init(seed: number, seats: SeatInfo[]): unknown;
+  init(seed: number, seats: SeatInfo[], purchases: Purchase[]): unknown;
   act(state: unknown, playerId: string, data: unknown, t: number): void;
   tick(state: unknown, t: number): void;
   over(state: unknown): boolean;
@@ -28,6 +35,8 @@ export interface ServerGame {
   view(state: unknown): unknown;
   /** Every seat's fate, best placed first. */
   results(state: unknown): SeatResult[];
+  /** Sabotage bought during the round, for the next trial. */
+  purchases?(state: unknown): Purchase[];
 }
 
 /** Server time is the authority, but a phone's fork move is judged when it happened, up to this late. */
@@ -37,8 +46,17 @@ const FORKS: Fork[] = ["idle", "stab", "raise", "chew", "lower", "drop"];
 /** Dinner Party: the server referees with the same rules module the WebView runs. */
 const dinner: ServerGame = {
   seats: 4,
+  refereed: true,
+  applies: ["marked", "short_fuse"],
   tickMs: 250,
-  init: (seed, seats) => newReferee(seed, seats.map((s) => ({ id: s.id, bot: s.bot, arm: s.limbs.includes("ra") }))),
+  init: (seed, seats, purchases) =>
+    newReferee(
+      seed,
+      sabotage(
+        seats.map((s) => ({ id: s.id, bot: s.bot, arm: s.limbs.includes("ra") })),
+        purchases,
+      ),
+    ),
   act(state, playerId, data, t) {
     const d = data as Partial<Act> & { kind?: string };
     if (d?.kind !== "act" || !FORKS.includes(d.fork as Fork)) return;
@@ -59,25 +77,43 @@ const dinner: ServerGame = {
 
 interface SelfReport {
   humans: string[];
+  bots: string[];
   reports: Record<string, SeatResult>;
+  bought: Purchase[];
   deadline: number;
 }
 
+const isPurchase = (p: unknown): p is Purchase => {
+  const x = p as Purchase;
+  return !!x && typeof x.buyer === "string" && typeof x.victim === "string" && OFFERS.includes(x.offer);
+};
+
 /**
  * Any other game: every phone plays its own copy against bots and reports its own subject's fate
- * through the standard `result` message. The round ends when every human has reported.
+ * through the standard `result` message. The round ends when every human has reported. Each
+ * phone's own purchases count; the bots' come from the first human's phone.
  */
 export function selfReported(seats = 4, deadline = 240): ServerGame {
   return {
     seats,
+    refereed: false,
+    applies: [],
     tickMs: 1000,
-    init: (_seed, seats): SelfReport => ({ humans: seats.filter((s) => !s.bot).map((s) => s.id), reports: {}, deadline }),
+    init: (_seed, seats): SelfReport => ({
+      humans: seats.filter((s) => !s.bot).map((s) => s.id),
+      bots: seats.filter((s) => s.bot).map((s) => s.id),
+      reports: {},
+      bought: [],
+      deadline,
+    }),
     act(state, playerId, data) {
       const s = state as SelfReport;
-      const d = data as { kind?: string; placements?: { id: string; status: string }[]; limbs?: Record<string, string[]> };
+      const d = data as { kind?: string; placements?: { id: string; status: string; limbs?: string[] }[]; limbs?: Record<string, string[]>; purchases?: unknown[] };
       if (d?.kind !== "result" || !s.humans.includes(playerId) || s.reports[playerId]) return;
       const mine = d.placements?.find((p) => p.id === playerId);
-      const kept = d.limbs?.[playerId];
+      const kept = d.limbs?.[playerId] ?? mine?.limbs;
+      const counts = (p: Purchase) => p.buyer === playerId || (playerId === s.humans[0] && s.bots.includes(p.buyer));
+      for (const p of (d.purchases ?? []).filter(isPurchase).filter(counts)) s.bought.push({ buyer: p.buyer, offer: p.offer, victim: p.victim });
       const lost = kept ? ["ra", "la", "rl", "ll"].filter((l) => !kept.includes(l)) : [];
       s.reports[playerId] = { id: playerId, dead: mine?.status === "dead", lost };
     },
@@ -92,10 +128,12 @@ export function selfReported(seats = 4, deadline = 240): ServerGame {
     },
     view: (state) => ({ reported: Object.keys((state as SelfReport).reports) }),
     results: (state) => Object.values((state as SelfReport).reports).sort((a, b) => Number(a.dead) - Number(b.dead)),
+    purchases: (state) => (state as SelfReport).bought,
   };
 }
 
 /** Server adapters by game key (the `game` field of the start message). */
 export const GAMES: Record<string, ServerGame> = {
   dinner,
+  machine: selfReported(4, 240),
 };
