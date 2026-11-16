@@ -285,6 +285,24 @@ export class Engine {
     this.slowScale = Math.min(this.slowScale, scale);
   }
 
+  /**
+   * Compile every material in the scene, hidden objects included, and draw one frame, so shaders
+   * (and shadow variants) build at load instead of at the first kill. Call once after the game is built.
+   */
+  prewarm() {
+    const hidden: THREE.Object3D[] = [];
+    this.scene.traverse((o) => {
+      if (o.visible) return;
+      o.visible = true;
+      hidden.push(o);
+    });
+    this.renderer.compile(this.scene, this.camera);
+    this.renderer.setRenderTarget(this.rt);
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.setRenderTarget(null);
+    for (const o of hidden) o.visible = false;
+  }
+
   /** Average and worst-second fps since start. */
   perf() {
     const s = this.fpsSamples.length ? this.fpsSamples : [60];

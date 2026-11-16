@@ -177,6 +177,47 @@ export class Gore {
     scene.add(this.flash);
     this.flashLight = new THREE.PointLight(0xffc070, 0, 9, 1.4);
     scene.add(this.flashLight);
+    this.warm();
+  }
+
+  private warmGroup: THREE.Group | null = null;
+  private warmed = false;
+
+  /**
+   * Draw one speck of every gore material on the first frame (main and shadow pass), so shaders
+   * compile and textures upload at load instead of stalling the first kill. Undone after that frame.
+   */
+  private warm() {
+    const g = new THREE.Group();
+    for (const m of Object.values(this.mat)) g.add(new THREE.Mesh(this.geo.meat, m));
+    g.add(new THREE.InstancedMesh(this.geo.gut, this.mat.gut, 1));
+    g.scale.setScalar(1e-4);
+    g.traverse((o) => {
+      o.frustumCulled = false;
+      o.castShadow = true;
+    });
+    g.children[0].onAfterRender = () => (this.warmed = true);
+    this.engine.scene.add(g);
+    this.warmGroup = g;
+    const speck = new THREE.Matrix4().makeScale(1e-4, 1e-4, 1e-4);
+    for (const m of [this.particles, ...this.decals]) {
+      m.setMatrixAt(0, speck);
+      m.instanceMatrix.needsUpdate = true;
+      m.count = 1;
+    }
+    this.flash.scale.setScalar(1e-4);
+    this.flash.visible = true;
+  }
+
+  private unwarm() {
+    this.warmGroup?.removeFromParent();
+    this.warmGroup = null;
+    this.particles.count = this.count;
+    this.decals.forEach((d, i) => {
+      if (!this.decalNext[i]) d.count = 0;
+    });
+    this.flash.scale.setScalar(1);
+    this.flash.visible = false;
   }
 
   /** Clear decals, gibs and stumps for a new round. */
@@ -364,6 +405,7 @@ export class Gore {
   }
 
   update(dt: number) {
+    if (this.warmed && this.warmGroup) this.unwarm();
     if (dt <= 0) return;
     this.updateParticles(dt);
     this.updateGibs(dt);

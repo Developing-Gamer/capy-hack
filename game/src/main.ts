@@ -67,6 +67,7 @@ function begin(msg: StartMessage) {
           },
   };
   const game = factory(ctx);
+  engine.prewarm();
   const speed = Number(new URLSearchParams(location.search).get('speed')) || 1;
   engine.onUpdate = (dt, t) => {
     for (let i = 0; i < speed; i++) {
