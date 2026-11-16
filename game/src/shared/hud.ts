@@ -16,7 +16,7 @@ export interface BoardRow {
   me?: boolean;
   dead?: boolean;
   done?: boolean;
-  /** Replaces the `value/max` text on the right of a living row (e.g. coins). */
+  /** Overrides the right-hand value text (defaults to DEAD / EXCUSED / value/max). */
   label?: string;
 }
 
@@ -86,7 +86,7 @@ export class Hud {
     this.board.innerHTML = rows
       .map(
         (r) =>
-          `<div class="row ${r.me ? 'me' : ''} ${r.dead ? 'dead' : ''} ${r.done ? 'done' : ''}"><b>${r.name}</b><span class="bar"><i style="width:${Math.min(100, (r.value / r.max) * 100)}%"></i></span><em>${r.dead ? 'DEAD' : r.done ? 'EXCUSED' : r.label ?? `${r.value}/${r.max}`}</em></div>`,
+          `<div class="row ${r.me ? 'me' : ''} ${r.dead ? 'dead' : ''} ${r.done ? 'done' : ''}"><b>${r.name}</b><span class="bar"><i style="width:${Math.min(100, (r.value / r.max) * 100)}%"></i></span><em>${r.label ?? (r.dead ? 'DEAD' : r.done ? 'EXCUSED' : `${r.value}/${r.max}`)}</em></div>`,
       )
       .join('');
   }

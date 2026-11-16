@@ -182,5 +182,6 @@ const chamber: ServerGame = {
 export const GAMES: Record<string, ServerGame> = {
   dinner,
   machine: selfReported(4, 240),
+  grinder: selfReported(),
   chamber,
 };

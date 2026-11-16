@@ -17,7 +17,9 @@ Dev URL params (desktop only, outside the WebView): `?game=dinner` picks the gam
 frame, `?nohud` hides the HUD for clean captures, `?debug` logs fps. In Dinner Party,
 keys 1-3 / Z-C / V-N make the host shoot bot 1-3 (head / arm then head / gut then head) and
 Y shoots you. In Last Chamber (`?game=chamber`), Space / P / T pull, pass and turn it on your turn,
-and K makes the next trigger pull a live round.
+and K makes the next trigger pull a live round. In The Grinder (`?game=grinder`), A / D or the arrow keys
+are the left / right hands, keys 1-3 feed bot 1-3 to the grinder, Y feeds you, and `?tp` swaps in a
+side camera for checking poses.
 
 ## Bridge
 
@@ -50,8 +52,8 @@ added. Two kinds exist:
   (`src/games/dinner-rules.ts`), decides every death and sends one view to all phones.
 - **Self-reported** (`selfReported()`): every phone plays its own copy against bots and the app
   forwards its `result` (plus an optional `limbs: { [id]: Limb[] }` of what each subject kept);
-  the trial ends when every human has reported. Adding `grinder: selfReported()` is enough to
-  plug a game into the run.
+  the trial ends when every human has reported. The Grinder runs this way (`grinder:
+  selfReported()`).
 
 The page only accepts one `start`; to replay, remount the WebView (the play screen bumps its
 `key`).
@@ -114,8 +116,29 @@ Hand-off to later trials (types in `src/shared/protocol.ts`):
 - `players[].coins` is optional (defaults to 12).
 
 Shared-engine additions (backward compatible): `sound.raw` exposes the WebAudio context, buses,
-reverb send and noise buffer for game-specific synthesis, and `ctx.finish(placements, extra?)`
-spreads `extra` (`purchases`) into the `result` message.
+reverb send and noise buffer for game-specific synthesis.
+
+### Shared-layer additions (all optional, existing games unaffected)
+
+- `Surface.vel` (`gore.ts`): a conveyor velocity. Decals and resting gibs on that surface ride
+  along with it and drop off its edges; mutate it as the belt changes speed.
+- `Sound.grind`, `scrape`, `grab`, `klaxon`, and a looping `motor(on)` with `motorLoad(0..1)`
+  (`audio.ts`).
+- `BoardRow.label` (`hud.ts`) overrides the right-hand value text of a scoreboard row.
+- `ctx.finish(placements, { limbs?, purchases? })` (`game.ts`): pass the limbs each survivor kept
+  and `result` carries them as `limbs`, so the trial runner maims players for real; The Machine
+  passes `purchases` the same way. The Grinder reports a leg
+  whose foot went into the teeth as lost.
+
+## Games
+
+- `dinner` (`src/games/dinner.ts`): Dinner Party. Eat while the host reads; he shoots movers.
+- `machine` (`src/games/machine.ts`): The Machine, the sabotage shop between trials (above).
+- `chamber` (`src/games/chamber.ts`): Last Chamber, Russian roulette for the pot (below).
+- `grinder` (`src/games/grinder.ts`): The Grinder. Alternate left / right taps to haul back along
+  the rails of a conveyor that feeds a meat grinder feet first; the same hand twice slips. The
+  belt speeds up and surges, and it stops when 2 of 4 are left (1 of 2–3). The sim runs on a
+  fixed 60 Hz step from the seed plus the human tap log, so it can be replayed or synced.
 
 `src/games/dinner.ts` is the reference: room building, a scripted antagonist, bots, an execution
 queue with slow-mo kills, and the round result. Its rules live in `src/games/dinner-rules.ts`, which

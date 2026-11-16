@@ -10,6 +10,11 @@ export interface Surface {
   x1: number;
   z0: number;
   z1: number;
+  /**
+   * Conveyor velocity in m/s (world XZ). Decals and resting gibs on a moving surface ride along
+   * with it and drop off its edges. Mutate it as the belt changes speed.
+   */
+  vel?: { x: number; z: number };
 }
 
 /** Vertical wall: the plane where position[axis] === at. normal points into the room (+1 or -1). */
@@ -46,6 +51,7 @@ interface Gib {
   bleed: number;
   rest: boolean;
   owned: boolean;
+  on: Surface | null;
 }
 
 interface Stump {
@@ -66,6 +72,17 @@ interface Pool {
   angle: number;
   cur: number;
   target: number;
+  carried: Carried | null;
+}
+
+interface Carried {
+  variant: number;
+  index: number;
+  pos: THREE.Vector3;
+  normal: THREE.Vector3;
+  angle: number;
+  size: number;
+  s: Surface;
 }
 
 interface Rope {
@@ -91,6 +108,7 @@ export class Gore {
   private decals: THREE.InstancedMesh[] = [];
   private decalNext: number[] = [];
   private pools: Pool[] = [];
+  private carried = new Map<number, Carried>();
   private gibs: Gib[] = [];
   private stumps: Stump[] = [];
   private ropes: Rope[] = [];
@@ -169,6 +187,7 @@ export class Gore {
       this.decalNext[i] = 0;
     });
     this.pools = [];
+    this.carried.clear();
     for (const g of this.gibs) if (g.owned) g.obj.removeFromParent();
     this.gibs = [];
     this.stumps = [];
@@ -199,10 +218,20 @@ export class Gore {
     const i = this.decalNext[variant];
     this.decalNext[variant] = (i + 1) % DECALS_PER_VARIANT;
     m.count = Math.max(m.count, i + 1);
-    this.writeDecal(m, i, pos, normal, rand(0, Math.PI * 2), size);
+    const angle = rand(0, Math.PI * 2);
+    this.writeDecal(m, i, pos, normal, angle, size);
     m.setColorAt(i, tmpC.setRGB(shade, shade * 0.06, shade * 0.05));
     if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    const key = variant * DECALS_PER_VARIANT + i;
+    this.carried.delete(key);
+    const s = normal.y > 0.9 ? this.movingAt(pos) : null;
+    if (s) this.carried.set(key, { variant, index: i, pos: pos.clone(), normal: normal.clone(), angle, size, s });
     return i;
+  }
+
+  private movingAt(p: THREE.Vector3) {
+    for (const s of this.surfaces) if (s.vel && Math.abs(p.y - s.y) < 0.01 && p.x >= s.x0 && p.x <= s.x1 && p.z >= s.z0 && p.z <= s.z1) return s;
+    return null;
   }
 
   private writeDecal(m: THREE.InstancedMesh, i: number, pos: THREE.Vector3, normal: THREE.Vector3, angle: number, size: number) {
@@ -219,13 +248,14 @@ export class Gore {
   pool(pos: THREE.Vector3, radius: number) {
     const normal = new THREE.Vector3(0, 1, 0);
     const index = this.decal(pos, normal, 0.01, 3, rand(0.5, 0.7));
-    this.pools.push({ variant: 3, index, pos: pos.clone(), normal, angle: rand(0, 6.28), cur: 0.01, target: radius });
+    const carried = this.carried.get(3 * DECALS_PER_VARIANT + index) ?? null;
+    this.pools.push({ variant: 3, index, pos: carried ? carried.pos : pos.clone(), normal, angle: carried ? carried.angle : rand(0, 6.28), cur: 0.01, target: radius, carried });
   }
 
   /** Throw an existing object (hat, severed limb) as a physics gib. It is re-parented to the scene. */
   throwObject(obj: THREE.Object3D, vel: THREE.Vector3, spin: THREE.Vector3, radius: number, bleed = 0) {
     this.engine.scene.attach(obj);
-    this.addGib({ obj, vel: vel.clone(), spin: spin.clone(), r: radius, bleed, rest: false, owned: false });
+    this.addGib({ obj, vel: vel.clone(), spin: spin.clone(), r: radius, bleed, rest: false, owned: false, on: null });
   }
 
   private addGib(g: Gib) {
@@ -266,7 +296,7 @@ export class Gore {
     obj.position.copy(origin);
     obj.rotation.set(rand(0, 6), rand(0, 6), rand(0, 6));
     this.engine.scene.add(obj);
-    this.addGib({ obj, vel: vel.clone(), spin: new THREE.Vector3(rand(-20, 20), rand(-20, 20), rand(-20, 20)), r, bleed: kind === 'bone' || kind === 'tooth' ? 0 : rand(0.5, 2), rest: false, owned: true });
+    this.addGib({ obj, vel: vel.clone(), spin: new THREE.Vector3(rand(-20, 20), rand(-20, 20), rand(-20, 20)), r, bleed: kind === 'bone' || kind === 'tooth' ? 0 : rand(0.5, 2), rest: false, owned: true, on: null });
   }
 
   /** A severed neck/limb that spurts in pulses. local/dir are in obj's space. */
@@ -339,9 +369,15 @@ export class Gore {
     this.updateGibs(dt);
     this.updateStumps(dt);
     this.updateRopes(dt);
+    this.updateCarried(dt);
     for (let i = this.pools.length - 1; i >= 0; i--) {
       const p = this.pools[i];
+      if (p.carried && !this.carried.has(p.variant * DECALS_PER_VARIANT + p.index)) {
+        this.pools.splice(i, 1);
+        continue;
+      }
       p.cur += (p.target - p.cur) * (1 - Math.exp(-0.6 * dt));
+      if (p.carried) p.carried.size = p.cur;
       this.writeDecal(this.decals[p.variant], p.index, p.pos, p.normal, p.angle, p.cur);
       if (p.target - p.cur < 0.005) this.pools.splice(i, 1);
     }
@@ -444,9 +480,36 @@ export class Gore {
     this.particles.instanceMatrix.needsUpdate = true;
   }
 
+  private updateCarried(dt: number) {
+    for (const [key, c] of this.carried) {
+      const v = c.s.vel;
+      if (!v) {
+        this.carried.delete(key);
+        continue;
+      }
+      c.pos.x += v.x * dt;
+      c.pos.z += v.z * dt;
+      const off = c.pos.x < c.s.x0 || c.pos.x > c.s.x1 || c.pos.z < c.s.z0 || c.pos.z > c.s.z1;
+      this.writeDecal(this.decals[c.variant], c.index, c.pos, c.normal, c.angle, off ? 1e-4 : c.size);
+      if (off) this.carried.delete(key);
+    }
+  }
+
   private updateGibs(dt: number) {
     for (const g of this.gibs) {
-      if (g.rest) continue;
+      if (g.rest) {
+        const s = g.on;
+        if (!s?.vel) continue;
+        const p = g.obj.position;
+        p.x += s.vel.x * dt;
+        p.z += s.vel.z * dt;
+        if (p.x < s.x0 || p.x > s.x1 || p.z < s.z0 || p.z > s.z1) {
+          g.rest = false;
+          g.on = null;
+          g.vel.set(s.vel.x, 0, s.vel.z);
+        }
+        continue;
+      }
       const o = g.obj;
       g.vel.y -= 9.8 * dt;
       const prevY = o.position.y;
@@ -462,16 +525,18 @@ export class Gore {
         const p = o.position;
         if (prevY - g.r >= s.y - 0.02 && p.y - g.r < s.y && p.x >= s.x0 && p.x <= s.x1 && p.z >= s.z0 && p.z <= s.z1) {
           const impact = -g.vel.y;
+          const vx = s.vel?.x ?? 0, vz = s.vel?.z ?? 0;
           p.y = s.y + g.r;
+          g.on = s;
           g.vel.y = impact > 0.6 ? impact * 0.32 : 0;
-          g.vel.x *= 0.6;
-          g.vel.z *= 0.6;
+          g.vel.x = vx + (g.vel.x - vx) * 0.6;
+          g.vel.z = vz + (g.vel.z - vz) * 0.6;
           g.spin.multiplyScalar(0.5);
           if (impact > 1.2) {
             if (g.bleed > 0 || g.owned) this.decal(tmpV2.set(p.x, s.y, p.z), UP, g.r * rand(3, 6), 1);
             this.hooks.onImpact?.(impact);
           }
-          if (impact <= 0.6 && Math.hypot(g.vel.x, g.vel.z) < 0.15) g.rest = true;
+          if (impact <= 0.6 && Math.hypot(g.vel.x - vx, g.vel.z - vz) < 0.15) g.rest = true;
           break;
         }
       }

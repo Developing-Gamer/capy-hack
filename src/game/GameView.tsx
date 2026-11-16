@@ -51,6 +51,7 @@ export function GameView({ start, net, onMessage }: GameViewProps) {
       post(start);
       if (net !== undefined) post({ type: 'net', data: net });
     } else if (msg.type === 'haptic') void haptic(msg.kind);
+    else if (msg.type === 'death' || msg.type === 'result') console.log('[game]', e.nativeEvent.data);
     onMessage?.(msg);
   };
 

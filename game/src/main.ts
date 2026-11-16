@@ -1,6 +1,7 @@
 import './style.css';
 import { createChamber } from './games/chamber';
 import { createDinner } from './games/dinner';
+import { createGrinder } from './games/grinder';
 import { createMachine } from './games/machine';
 import { onAppMessage, inApp, send } from './shared/bridge';
 import type { GameContext, GameFactory } from './shared/game';
@@ -13,6 +14,7 @@ import { Rng } from './shared/util';
 const GAMES: Record<string, GameFactory> = {
   dinner: createDinner,
   machine: createMachine,
+  grinder: createGrinder,
   chamber: createChamber,
 };
 
